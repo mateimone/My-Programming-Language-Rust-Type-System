@@ -1,0 +1,7 @@
+image: haskell:9.10-slim-bullseye
+
+test:
+  stage: test
+  script:
+    - make install
+    - make test

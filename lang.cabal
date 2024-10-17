@@ -1,0 +1,70 @@
+cabal-version:      3.0
+
+name:               Lang
+version:            0.1.0.0
+
+-- all the commong configurations
+common shared
+    build-depends:    base >=4.17 && < 4.22
+                    , array
+
+    default-language: GHC2021
+
+-- the BNFC-generated library containing the grammar
+library grammar
+    import:           shared
+
+    hs-source-dirs:   grammar
+    exposed-modules:  Lang.Abs
+                    , Lang.ErrM
+                    , Lang.Lex
+                    , Lang.Par
+                    , Lang.Print
+
+
+-- the main library containing the language implementation
+library lang
+    import:           shared
+
+    hs-source-dirs:   src
+
+    exposed-modules:  Run
+                    , Evaluator
+                    , Env
+                    , Value
+                    , Interp.Expr
+                    , Interp.Stmt
+                    , Interp.Prog
+                    , TypeCheck.Expr
+                    , TypeCheck.Stmt
+                    , TypeCheck.Prog
+
+    build-depends:    grammar
+                    , containers
+
+-- the main executable which lets you run the interpreter
+executable main
+    import:           shared
+
+    hs-source-dirs:   app
+    main-is:          Main.hs
+
+    build-depends:    grammar
+                    , lang
+
+-- the test suite
+test-suite test
+    import:           shared
+
+    type:             exitcode-stdio-1.0
+    hs-source-dirs:   test
+    main-is:          Main.hs
+
+    other-modules:    InterpTests
+                    , TypeCheckTests
+                    , BogusTests
+
+    build-depends:    grammar
+                    , lang
+                    , hspec
+                    , QuickCheck

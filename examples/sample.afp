@@ -1,0 +1,6 @@
+val x = 3;
+val y = 5;
+fun orFalse (a : bool) = a || False;
+val z = x + y < 10;
+
+orFalse z

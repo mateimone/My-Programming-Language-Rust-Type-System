@@ -1,0 +1,70 @@
+-- A program is defined as a (possibly empty) list of statements separated by semicolons,
+-- followed by an expression which will be evaluated to produce an output.
+
+entrypoints Program;
+
+Program. Program ::= [Stmt] Exp ;
+
+--This is the syntax from BNFC to define a list of statements
+[].    [Stmt] ::= ;
+(:).   [Stmt] ::= Stmt ";" [Stmt] ;
+
+-- TYPES --------------------------------------------------------------
+
+TInt.  Type1 ::= "int";
+TBool. Type1 ::= "bool";
+
+_. Type2 ::= "(" Type ")";
+_. Type1 ::= Type2;
+_. Type  ::= Type1;
+
+-- STATEMENTS ---------------------------------------------------------
+
+SLet. Stmt ::= "val" Ident "=" Exp ;
+SFun. Stmt ::= "fun" Ident "(" Ident ":" Type ") =" Exp ;
+
+-- EXPRESSIONS --------------------------------------------------------
+
+-- Arithmetic
+EInt. Exp7  ::= Integer;
+
+EMul. Exp6  ::= Exp6 "*" Exp7;
+EDiv. Exp6  ::= Exp6 "/" Exp7;
+EAdd. Exp5  ::= Exp5 "+" Exp6;
+ESub. Exp5  ::= Exp5 "-" Exp6;
+
+-- Booleans
+ETrue.  Exp3  ::= "True";
+EFalse. Exp3  ::= "False";
+
+ENot.   Exp3  ::= "!" Exp3;
+EAnd.   Exp2  ::= Exp2 "&&" Exp3;
+EOr.    Exp1  ::= Exp1 "||" Exp2;
+
+-- Comparisons
+EEq.  Exp  ::= Exp "==" Exp1;
+ELt.  Exp4 ::= Exp4 "<" Exp5;
+EGt.  Exp4 ::= Exp4 ">" Exp5;
+ELeq. Exp4 ::= Exp4 "<=" Exp5;
+EGeq. Exp4 ::= Exp4 ">=" Exp5;
+
+-- Control flow
+EIf.  Exp8 ::= "if" Exp "then" Exp "else" Exp;
+
+-- Let bindings
+ELet. Exp8 ::= "let" Ident "=" Exp "in" Exp;
+EVar. Exp8 ::= Ident;
+
+-- Functions
+EApp. Exp8 ::= Ident Exp7;
+
+-- This part sets up the order of operation
+_. Exp8 ::= "(" Exp ")" ;
+_. Exp7 ::= Exp8 ;
+_. Exp6 ::= Exp7 ;
+_. Exp5 ::= Exp6 ;
+_. Exp4 ::= Exp5 ;
+_. Exp3 ::= Exp4 ;
+_. Exp2 ::= Exp3 ;
+_. Exp1 ::= Exp2 ;
+_. Exp  ::= Exp1 ;
