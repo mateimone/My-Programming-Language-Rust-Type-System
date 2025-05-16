@@ -23,7 +23,6 @@ logic (e1, e2) env f =  do
         _                    -> throw "Boolean operations can only be performed on booleans"
         
 -- EXPRESSION INTERPRETER ------------------------------------------------------------
-
 interp :: Exp -> (Env Value, Env Closure) -> Result Value
 
 -- Arithmetic
@@ -32,7 +31,7 @@ interp (EInt i) _ = return $ VInt i
 interp (EMul e1 e2) env = arithmetic (e1, e2) env (*)
 interp (EDiv e1 e2) env = arithmetic (e1, e2) env div
 interp (EAdd e1 e2) env = arithmetic (e1, e2) env (+)
-interp (ESub e1 e2) env = arithmetic (e1, e2) env (-)
+interp (ESub e1 e2) env = arithmetic (e1, e2) env (-) 
 
 -- Booleans
 interp ETrue  _ = return $ VBool True
@@ -90,16 +89,16 @@ interp (EIf c iff els) env = do
 -- Let bindings
 interp (ELet x e body) env@(vars, funs) = do
     arg <- interp e env
-    interp body (bind x arg vars, funs)
+    interp body (bind x (arg, Imm) vars, funs)
 interp (EVar x) (vars, _) =
     case find x vars of
-        Just val -> return val
+        Just (val, _) -> return val
         Nothing  -> throw $ "Variable " ++ show x ++ " is not bound"
 
 -- Functions
 interp (EApp f e) env@(vars, funs) = do
     case find f funs of
-        Just (Fun x body) -> do
+        Just (Fun x body, _) -> do
             arg <- interp e env
-            interp body (bind x arg vars, funs)
+            interp body (bind x (arg, Imm) vars, funs)
         _        -> throw "Arguments can only be applied to functions"

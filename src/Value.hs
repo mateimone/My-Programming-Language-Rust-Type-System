@@ -14,3 +14,5 @@ data Closure = Fun Ident Exp
 
 data TClosure = TFun Type Type
   deriving (Show, Eq)
+
+data Mutability = Imm | Mut

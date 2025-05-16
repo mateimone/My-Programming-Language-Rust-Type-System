@@ -7,21 +7,30 @@ Program. Program ::= [Stmt] Exp ;
 
 --This is the syntax from BNFC to define a list of statements
 [].    [Stmt] ::= ;
-(:).   [Stmt] ::= Stmt ";" [Stmt] ;
+(:).   [Stmt] ::= Stmt [Stmt] ;
+[].    [Exp]  ::= ;
+(:).   [Exp]  ::= Exp [Exp] ;
 
 -- TYPES --------------------------------------------------------------
 
 TInt.  Type1 ::= "int";
 TBool. Type1 ::= "bool";
+TVoid. Type1 ::= "()";
 
 _. Type2 ::= "(" Type ")";
 _. Type1 ::= Type2;
 _. Type  ::= Type1;
 
 -- STATEMENTS ---------------------------------------------------------
+SAss.     Stmt ::= "ass" Ident "=" Exp ";" ;
+SLet.     Stmt ::= "val" Ident "=" Exp ";" ;
+SLetAnn.  Stmt ::= "val" Ident ":" Type "=" Exp ";" ;
+SLetM.    Stmt ::= "val" "mut" Ident "=" Exp ";" ; 
+SLetMAnn. Stmt ::= "val" "mut" Ident ":" Type "=" Exp ";" ;
+SFun.     Stmt ::= "fun" Ident "(" Ident ":" Type ") =" Exp ";" ;
 
-SLet. Stmt ::= "val" Ident "=" Exp ;
-SFun. Stmt ::= "fun" Ident "(" Ident ":" Type ") =" Exp ;
+SIf.      Stmt ::= "if" Exp "{" [Stmt] Exp "}" ;
+SIfElse.  Stmt ::= "if" Exp "{" [Stmt] Exp "}" "else" "{" [Stmt] Exp "}" ;
 
 -- EXPRESSIONS --------------------------------------------------------
 

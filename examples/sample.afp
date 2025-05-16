@@ -1,6 +1,11 @@
 val x = 3;
 val y = 5;
-fun orFalse (a : bool) = a || False;
-val z = x + y < 10;
+val mut z = 8;
+ass z = 9;
+fun orFalse (a : bool) = a && True;
 
-orFalse z
+val mut o: int = 4;
+ass o = 1;
+val o = 1;
+val mut kk = orFalse (o == 1);
+kk

@@ -4,7 +4,8 @@ import Evaluator
 
 import Env
 
-import Value ( TClosure( TFun ) )
+import Value ( TClosure( TFun )
+             , Mutability( Imm, Mut ))
 
 import Lang.Abs ( Exp(..)
                 , Ident
@@ -83,17 +84,17 @@ infer (EIf c iff els) env = do
 
 -- Let bindings
 infer (ELet x e body) env@(vars, funs) = do
-    t <- infer e env
-    infer body (bind x t vars, funs)
+    t <- infer e env 
+    infer body (bind x (t, Imm) vars, funs)
 infer (EVar x) (vars, _) =
     case find x vars of
-        Just t  -> return t
+        Just (t, _)  -> return t
         Nothing -> throw $ "Variable " ++ show x ++ " is not bound"
 
 -- Functions
 infer (EApp f e) env@(_, funs) = do
     case find f funs of
-        Just (TFun targ tret) -> do
+        Just (TFun targ tret, _) -> do
             eT <- infer e env
             if eT == targ then return tret
             else throw "Function argument type mismatch"
