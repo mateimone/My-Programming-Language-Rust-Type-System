@@ -8,14 +8,24 @@ Program. Program ::= [Stmt] Exp ;
 --This is the syntax from BNFC to define a list of statements
 [].    [Stmt] ::= ;
 (:).   [Stmt] ::= Stmt [Stmt] ;
+
 [].    [Exp]  ::= ;
 (:).   [Exp]  ::= Exp [Exp] ;
+
+ArgImm.   Arg  ::= Ident ":" Type ;
+ArgMut.   Arg  ::= "mut" Ident ":" Type ;
+separator Arg "," ;
+--(:).   [Arg] ::= Arg [Arg] ;
+--[].    [Arg] ::= ;
+separator Exp7 "," ;
+--(:).   [Exp7] ::= Exp7 [Exp7] ;
+--[].    [Exp7] ::= ;
 
 -- TYPES --------------------------------------------------------------
 
 TInt.  Type1 ::= "int";
 TBool. Type1 ::= "bool";
-TVoid. Type1 ::= "()";
+TUnit. Type1 ::= "unit";
 
 _. Type2 ::= "(" Type ")";
 _. Type1 ::= Type2;
@@ -27,10 +37,13 @@ SLet.     Stmt ::= "val" Ident "=" Exp ";" ;
 SLetAnn.  Stmt ::= "val" Ident ":" Type "=" Exp ";" ;
 SLetM.    Stmt ::= "val" "mut" Ident "=" Exp ";" ; 
 SLetMAnn. Stmt ::= "val" "mut" Ident ":" Type "=" Exp ";" ;
-SFun.     Stmt ::= "fun" Ident "(" Ident ":" Type ") =" Exp ";" ;
+SFun.     Stmt ::= "fun" Ident "(" [Arg] ") -> " Type " = {" [Stmt] Exp "}" ;
+-- SFunNP.   Stmt ::= "fun" Ident "() -> " Type " = {" [Stmt] Exp "}" ;
+-- SFunNAnn. Stmt ::= "fun" Ident "(" [Arg] ")" 
 
-SIf.      Stmt ::= "if" Exp "{" [Stmt] Exp "}" ;
-SIfElse.  Stmt ::= "if" Exp "{" [Stmt] Exp "}" "else" "{" [Stmt] Exp "}" ;
+SIf.      Stmt ::= "if" "(" Exp ")" "{" [Stmt] "}" ;
+SIfElse.  Stmt ::= "if" "(" Exp ")" "{" [Stmt] "}" "else" "{" [Stmt] "}" ;
+SWhile.   Stmt ::= "while" "(" Exp ")" "{" [Stmt] "}" ;
 
 -- EXPRESSIONS --------------------------------------------------------
 
@@ -58,14 +71,16 @@ ELeq. Exp4 ::= Exp4 "<=" Exp5;
 EGeq. Exp4 ::= Exp4 ">=" Exp5;
 
 -- Control flow
-EIf.  Exp8 ::= "if" Exp "then" Exp "else" Exp;
+-- EIfElse.  Exp8 ::= "if" "(" Exp ")" "{" Exp "}" "else" "{" Exp "}" ;
 
 -- Let bindings
 ELet. Exp8 ::= "let" Ident "=" Exp "in" Exp;
 EVar. Exp8 ::= Ident;
 
 -- Functions
-EApp. Exp8 ::= Ident Exp7;
+EApp. Exp8 ::= Ident "(" [Exp7] ")";
+
+EVoid. Exp8 ::= "void" ;
 
 -- This part sets up the order of operation
 _. Exp8 ::= "(" Exp ")" ;

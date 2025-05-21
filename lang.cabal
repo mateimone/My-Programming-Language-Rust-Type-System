@@ -39,7 +39,9 @@ library lang
                     , TypeCheck.Stmt
                     , TypeCheck.Prog
 
-    build-depends:    grammar
+    build-depends:    mtl ^>=2.3.1
+                    , transformers ^>= 0.6.1.0
+                    , grammar
                     , containers
 
 -- the main executable which lets you run the interpreter

@@ -1,11 +1,9 @@
-val x = 3;
-val y = 5;
-val mut z = 8;
-ass z = 9;
-fun orFalse (a : bool) = a && True;
-
-val mut o: int = 4;
-ass o = 1;
-val o = 1;
-val mut kk = orFalse (o == 1);
-kk
+fun x() -> int = {
+    val mut k = 8;
+    val k = 9;
+    val mut k = 19;
+    ass k = k + 1;
+    k
+}
+val mut k = 4;
+x()

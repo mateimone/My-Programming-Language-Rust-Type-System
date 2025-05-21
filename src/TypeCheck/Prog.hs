@@ -16,13 +16,13 @@ import qualified Lang.ErrM as S
 
 -- PROGRAM TYPE CHECKER --------------------------------------------------------------
 
-infer :: Evaluator Type TClosure
-infer (Program stmts exp) env = do
-    nenv <- prepare stmts env
-    E.infer exp nenv
+infer :: Program -> TC Type
+infer (Program stmts exp) = do
+    prepare stmts
+    E.infer exp
   where
-    prepare :: [Stmt] -> (Env Type, Env TClosure) -> Result (Env Type, Env TClosure)
-    prepare []           env = return env
-    prepare (stmt:stmts) env = do
-        nenv <- S.infer stmt env
-        prepare stmts nenv
+    prepare :: [Stmt] -> TC ()
+    prepare []           = return ()
+    prepare (stmt:stmts) = do
+        S.infer stmt 
+        prepare stmts 

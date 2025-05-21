@@ -7,10 +7,11 @@ import System.IO ( hSetBuffering
                  , BufferMode(NoBuffering) )
 
 eval :: String -> IO ()
-eval program = putStrLn $
-    case run program of
-        Left  err -> err
-        Right val -> show val
+eval program = do
+    res <- run program
+    case res of
+        Left  err -> putStrLn err
+        Right val -> print val
 
 main :: IO ()
 main = do

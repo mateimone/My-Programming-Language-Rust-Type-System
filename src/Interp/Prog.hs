@@ -14,13 +14,14 @@ import qualified Interp.Expr as E
 
 -- PROGRAM INTERPRETER ---------------------------------------------------------------
 
-interp :: Evaluator Value Closure
-interp (Program stmts exp) env = do
-    nenv <- prepare stmts env
-    E.interp exp nenv
+interp :: Program -> Eval Value
+interp (Program stmts exp) = do
+    prepare stmts
+    E.interp exp
   where
-    prepare :: [Stmt] -> (Env Value, Env Closure) -> Result (Env Value, Env Closure)
-    prepare []           env = return env
-    prepare (stmt:stmts) env = do
-        nenv <- S.interp stmt env
-        prepare stmts nenv
+    prepare :: [Stmt] -> Eval ()
+    prepare []           = return ()
+    prepare (stmt:stmts) = do
+        nenv <- S.interp stmt
+        prepare stmts 
+
