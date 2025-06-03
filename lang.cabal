@@ -43,6 +43,7 @@ library lang
                     , transformers ^>= 0.6.1.0
                     , grammar
                     , containers
+                    , extra >= 1.7
 
 -- the main executable which lets you run the interpreter
 executable main

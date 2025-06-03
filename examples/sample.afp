@@ -1,9 +1,4 @@
-fun x() -> int = {
-    val mut k = 8;
-    val k = 9;
-    val mut k = 19;
-    ass k = k + 1;
-    k
-}
-val mut k = 4;
-x()
+val mut zz = vec![vec![vec![1]]];
+set zz[0][0][0] = 121;
+val a = (zz[0]).remove(0);
+return a[0]

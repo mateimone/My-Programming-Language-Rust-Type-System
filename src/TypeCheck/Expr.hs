@@ -2,10 +2,12 @@ module TypeCheck.Expr where
 
 import Evaluator
 
-import Env
+import Env hiding (modify)
 
 import Value ( TClosure( TFun )
-             , Mutability( Imm, Mut ))
+             , Mutability( Imm, Mut )
+             , VarInfo(..)
+             , isCopy )
 
 import Lang.Abs ( Exp(..)
                 , Ident
@@ -15,6 +17,16 @@ import qualified Data.Map.Strict as M
 import Control.Monad
 import Control.Monad.Trans.State.Strict
 
+
+checkMoveNotAllowed :: Type -> Exp -> TC ()
+checkMoveNotAllowed t e@(EIdx vec i) 
+  | isCopy t = return ()
+  | otherwise= throwError ("Cannot move element from array in expression " ++ show e)
+checkMoveNotAllowed _ _ = return ()
+
+checkMultiple :: [Type] -> [Exp] -> TC ()
+checkMultiple [] [] = return ()
+checkMultiple (t:ts) (e:es) = checkMoveNotAllowed t e >> checkMultiple ts es
 
 arithmetic :: (Exp, Exp) -> TC Type
 arithmetic (e1, e2) = do
@@ -93,7 +105,97 @@ infer (EGeq e1 e2) = comparison (e1, e2)
 -- infer (ELet x e body) = do
 --     t <- infer e 
 --     withBoundVarT x (t, Imm) (infer body)
-infer (EVar x) = fst <$> lookupVarT x
+infer (EVar x) = do 
+    tup <- lookupVarT x
+    let vi = fst tup
+    let mu = snd tup
+    when (live vi == False) $ -- if vi is not live anymore
+        throwError $ "Variable" ++ show x ++ "was moved"
+    when (copyFlag vi == False) $ do -- move value if variable not primitive
+        modify (\env -> env { scopes= M.insert x (vi{ live=False },mu) (head $ scopes env) : (tail $ scopes env)} )
+    return (ty vi)
+    
+infer ERed    = return TLight
+infer EYellow = return TLight
+infer EGreen  = return TLight
+
+infer (EVec es) = do
+    ets <- mapM infer es
+    checkMultiple ets es
+    case ets of
+        [] -> throwError "Empty vector literal needs type annotation"
+        t:ts -> 
+            if (all (\ty -> ty == t) ts) then return (TList t)
+            else throwError $ "All elements in vector " ++ show es ++ "must be of the same type"
+
+-- NOTE FOR FUTURE
+-- RETURN A REFERENCE TO THE ELEMENT (WHETHER IT'S COPYABLE OR NOT)
+-- UNWRAP FOR PRIMITIVES
+infer (EIdx (EVar x) i) = do
+    tVec <- peekVarType x
+    tIdx <- infer i
+    when (tIdx /= TInt) $ throwError "Array index must be an integer"
+    case tVec of
+        TList elTy -> return elTy
+            -- | isCopy elTy -> return elTy
+            -- | otherwise -> throwError "Cannot move non-copyable type from list"
+        _ -> throwError "Indexing works only on lists"
+
+infer (EIdx v@(EVec es) i) = do
+    tIdx <- infer i
+    when (tIdx /= TInt) $ throwError "Array index must be an integer"
+    (TList eTy) <- infer v
+    -- if isCopy eTy then return eTy
+    -- else throwError "Cannot move non-copyable type from list"
+    return eTy
+
+infer (EIdx prevE@(EIdx v prevI) i) = do
+    tIdx <- infer i
+    when (tIdx /= TInt) $ throwError "Array index must be an integer"
+    tp <- infer prevE
+    case tp of
+        TList elTy -> return elTy
+            -- | isCopy elTy -> return elTy
+            -- | otherwise -> throwError "Cannot move non-copyable type from list"
+        _ -> throwError "Indexing works only on lists"
+
+infer (EIdx rmv@(ERemove vc ri) i) = do
+    tIdx <- infer i
+    when (tIdx /= TInt) $ throwError "Array index must be an integer"
+    tp <- infer rmv
+    case tp of
+        TList elTy -> return elTy
+        _ -> throwError  "Indexing works only on lists"
+
+infer (ERemove (EVar x) i) = do
+    tVec <- peekVarType x
+    tIdx <- infer i
+    when (tIdx /= TInt) $ throwError "Remove: Array index must be an integer"
+    case tVec of
+        TList elTy -> return elTy
+        _ -> throwError "The remove function works only on lists"
+
+-- infer (ERemove v@(EVec es) i) = do
+--     tIdx <- infer i
+--     when (tIdx /= TInt) $ throwError "Array index must be an integer"
+--     (TList eTy) <- infer v
+--     return eTy
+
+infer (ERemove prevE@(EIdx v prevI) i) = do
+    tIdx <- infer i
+    when (tIdx /= TInt) $ throwError "Array index must be an integer"
+    tp <- infer prevE
+    case tp of
+        TList elTy -> return elTy
+        _ -> throwError "Can only remove an element from a list"
+
+
+-- infer (EPush vec el) = do
+--     (TList esTy) <- infer vec
+--     eTy <- infer el
+    
+--     if eTy == esTy then return TUnit 
+--     else throwError $ "Push: List's " ++ show vec ++ " elements are of type " ++ show esTy ++ ", but " ++ show el ++ " is of type " ++ show eTy
 
 -- Functions
 infer (EApp f args) = do
@@ -105,6 +207,7 @@ infer (EApp f args) = do
     forM_ (zip args paramsT_Muts) $ \(arg, expectedT) -> do
         e <- get
         actualT <- infer arg
+        checkMoveNotAllowed actualT arg
         when (actualT /= fst expectedT) $ throwError $ 
             "type mismatch in call to " ++ show f ++
             ": expected " ++ show expectedT ++
@@ -112,3 +215,9 @@ infer (EApp f args) = do
 
     return retTy
 
+peekVarType :: Ident -> TC Type
+peekVarType x = do
+  (vi, _) <- lookupVarT x
+  when (live vi == False) $
+      throwError $ "Variable " ++ show x ++ " was moved"
+  return (ty vi)

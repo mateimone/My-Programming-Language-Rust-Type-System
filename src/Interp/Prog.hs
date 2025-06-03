@@ -4,10 +4,10 @@ import Evaluator
 
 import Env
 import Value ( Value
-             , Closure )
+             , Closure, isCopy )
 
 import Lang.Abs ( Program( Program )
-                , Stmt )
+                , Stmt(..), Type, Exp(..) )
 
 import qualified Interp.Stmt as S
 import qualified Interp.Expr as E

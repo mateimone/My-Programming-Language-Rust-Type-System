@@ -3,7 +3,7 @@
 
 entrypoints Program;
 
-Program. Program ::= [Stmt] Exp ;
+Program. Program ::= [Stmt] "return " Exp ;
 
 --This is the syntax from BNFC to define a list of statements
 [].    [Stmt] ::= ;
@@ -15,17 +15,18 @@ Program. Program ::= [Stmt] Exp ;
 ArgImm.   Arg  ::= Ident ":" Type ;
 ArgMut.   Arg  ::= "mut" Ident ":" Type ;
 separator Arg "," ;
---(:).   [Arg] ::= Arg [Arg] ;
---[].    [Arg] ::= ;
 separator Exp7 "," ;
---(:).   [Exp7] ::= Exp7 [Exp7] ;
---[].    [Exp7] ::= ;
+IndexList. IndexList ::= "[" Exp "]" ;
+[]. [IndexList] ::= ;
+(:). [IndexList] ::= IndexList [IndexList] ;
 
 -- TYPES --------------------------------------------------------------
 
-TInt.  Type1 ::= "int";
-TBool. Type1 ::= "bool";
-TUnit. Type1 ::= "unit";
+TInt.   Type1 ::= "int";
+TBool.  Type1 ::= "bool";
+TUnit.  Type1 ::= "unit";
+TLight. Type1 ::= "Light";
+TList.  Type1 ::= "List" "<" Type ">";
 
 _. Type2 ::= "(" Type ")";
 _. Type1 ::= Type2;
@@ -37,13 +38,15 @@ SLet.     Stmt ::= "val" Ident "=" Exp ";" ;
 SLetAnn.  Stmt ::= "val" Ident ":" Type "=" Exp ";" ;
 SLetM.    Stmt ::= "val" "mut" Ident "=" Exp ";" ; 
 SLetMAnn. Stmt ::= "val" "mut" Ident ":" Type "=" Exp ";" ;
-SFun.     Stmt ::= "fun" Ident "(" [Arg] ") -> " Type " = {" [Stmt] Exp "}" ;
--- SFunNP.   Stmt ::= "fun" Ident "() -> " Type " = {" [Stmt] Exp "}" ;
--- SFunNAnn. Stmt ::= "fun" Ident "(" [Arg] ")" 
-
+SFun.     Stmt ::= "fun" Ident "(" [Arg] ") -> " Type " = {" [Stmt] "return " Exp "}" ;
 SIf.      Stmt ::= "if" "(" Exp ")" "{" [Stmt] "}" ;
 SIfElse.  Stmt ::= "if" "(" Exp ")" "{" [Stmt] "}" "else" "{" [Stmt] "}" ;
 SWhile.   Stmt ::= "while" "(" Exp ")" "{" [Stmt] "}" ;
+
+SPush.   Stmt ::= Exp8 "." "push"   "(" Exp7 ")"      ";" ;
+SInsert. Stmt ::= Exp8 "." "insert" "(" Exp7 "," Exp7 ")" ";" ;
+SSetIdx. Stmt ::= "set" Exp8 [IndexList] "=" Exp7 ";" ;
+-- SReturn. Stmt ::= "return " Exp8 ";" ;
 
 -- EXPRESSIONS --------------------------------------------------------
 
@@ -81,6 +84,18 @@ EVar. Exp8 ::= Ident;
 EApp. Exp8 ::= Ident "(" [Exp7] ")";
 
 EVoid. Exp8 ::= "void" ;
+
+-- Light
+ERed.    Exp7 ::= "Red" ;
+EYellow. Exp7 ::= "Yellow" ;
+EGreen.  Exp7 ::= "Green" ;
+
+-- Lists
+EVec. Exp7 ::= "vec!" "[" [Exp7] "]" ;
+EIdx. Exp7 ::= Exp7 "[" Exp7 "]" ;
+
+-- List operations (of type unit)
+ERemove. Exp8 ::= Exp8 "." "remove" "(" Exp7 ")" ;
 
 -- This part sets up the order of operation
 _. Exp8 ::= "(" Exp ")" ;
