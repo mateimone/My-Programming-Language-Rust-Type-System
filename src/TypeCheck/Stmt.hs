@@ -191,16 +191,35 @@ infer s@(SAss x e) = do
     Imm -> throwError ("cannot assign to immutable " ++ show x)
     Mut -> do
       ety <- E.infer e
-      voidNotAllowed ety e s
-      checkMoveNotAllowed ety e
-      if (ty vi) == ety then do
-        let c = isCopy ety
+      realUnwrappedType <- case (ety, ty vi) of
+                  (TList rt, TList tty) -> do
+                    tup <- unwrapListTypeUntilEnd (TList rt) 0
+                    let realUnwrapped = fst tup
+                    let numberOfUnwrapsReal = snd tup
+
+                    tup2 <- unwrapListTypeUntilEnd (TList tty) 0
+                    let expectedUnwrapped = fst tup2
+                    let numberOfUnwrapsExpected = snd tup2
+                    if (numberOfUnwrapsReal == numberOfUnwrapsExpected) then
+                      case realUnwrapped of 
+                        TUnknown -> wrapTypeBack expectedUnwrapped numberOfUnwrapsReal
+                        other -> wrapTypeBack other numberOfUnwrapsReal
+                    else 
+                      throwError $ "Type mismatch for " ++ show x ++
+                                  ": annotation says " ++ show (ty vi) ++
+                                  " but expression has type " ++ show ety
+
+                  (a, e) -> return a
+      voidNotAllowed realUnwrappedType e s
+      checkMoveNotAllowed realUnwrappedType e
+      if (ty vi) == realUnwrappedType then do
+        let c = isCopy realUnwrappedType
         let vi' = vi { live = True }
         modify (\env -> env { scopes= M.insert x (vi', Mut) (head $ scopes env) : (tail $ scopes env)} )
         return ()
       else throwError $ "Type mismatch in assignment to " ++ show x
                       ++ ": variable has type " ++ show (ty vi)
-                      ++ ", but expression has type " ++ show ety
+                      ++ ", but expression has type " ++ show realUnwrappedType
 
 infer w@(SWhile cond stmts) = do
   e <- get
@@ -274,12 +293,27 @@ infer s@(SSetIdx (EVar vec) idxs el) = do
     when (any (\idxTy -> idxTy /= TInt) idxsTy) $ throwError "Index to insert element in list must be an integer"
     when (mut == Imm) $ throwError $ "List " ++ show vec ++ " is immutable"
     eTy <- E.infer el
-    checkMoveNotAllowed eTy el
-    -- liftIO $ print (TList esTy)
-    -- liftIO $ print (length idxs)
+    realUnwrappedType <- case (eTy, esTy) of
+                  (TList rt, TList tty) -> do
+                    tup <- unwrapListTypeUntilEnd (TList rt) 0
+                    let realUnwrapped = fst tup
+                    let numberOfUnwrapsReal = snd tup
+
+                    tup2 <- unwrapListTypeUntilEnd (TList tty) 0
+                    let expectedUnwrapped = fst tup2
+                    let numberOfUnwrapsExpected = snd tup2
+                    if (numberOfUnwrapsReal == numberOfUnwrapsExpected) then
+                      case realUnwrapped of 
+                        TUnknown -> wrapTypeBack expectedUnwrapped numberOfUnwrapsReal
+                        other -> wrapTypeBack other numberOfUnwrapsReal
+                    else 
+                      throwError $ 
+                      "Set: List's " ++ show vec ++ " elements are of type " ++ show esTy ++ ", but element " ++ show el ++ " has type " ++ show eTy
+
+                  (a, e) -> return a
+    checkMoveNotAllowed realUnwrappedType el
     unwrappedType <- unwrapListType (TList esTy) (length idxs)
-    -- liftIO $ print unwrappedType
-    when (eTy /= unwrappedType) $ 
+    when (realUnwrappedType /= unwrappedType) $ 
       throwError $ "Set: List's " ++ show vec ++ " elements are of type " ++ show esTy ++ ", but element " ++ show el ++ " has type " ++ show eTy
     
 infer (SExp e) = do
