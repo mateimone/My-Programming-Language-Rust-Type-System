@@ -22,11 +22,12 @@ IndexList. IndexList ::= "[" Exp "]" ;
 
 -- TYPES --------------------------------------------------------------
 
-TInt.   Type1 ::= "int";
-TBool.  Type1 ::= "bool";
-TUnit.  Type1 ::= "unit";
-TLight. Type1 ::= "Light";
-TList.  Type1 ::= "List" "<" Type ">";
+TInt.    Type1 ::= "int";
+TBool.   Type1 ::= "bool";
+TUnit.   Type1 ::= "unit";
+TLight.  Type1 ::= "Light";
+TList.   Type1 ::= "List" "<" Type ">";
+TUnknown. Type1 ::= "?" ;
 
 _. Type2 ::= "(" Type ")";
 _. Type1 ::= Type2;
@@ -45,8 +46,9 @@ SWhile.   Stmt ::= "while" "(" Exp ")" "{" [Stmt] "}" ;
 
 SPush.   Stmt ::= Exp8 "." "push"   "(" Exp7 ")"      ";" ;
 SInsert. Stmt ::= Exp8 "." "insert" "(" Exp7 "," Exp7 ")" ";" ;
-SSetIdx. Stmt ::= "set" Exp8 [IndexList] "=" Exp7 ";" ;
+SSetIdx. Stmt ::= Exp8 [IndexList] "=" Exp7 ";" ;
 -- SReturn. Stmt ::= "return " Exp8 ";" ;
+SExp. Stmt ::= Exp ";" ;
 
 -- EXPRESSIONS --------------------------------------------------------
 

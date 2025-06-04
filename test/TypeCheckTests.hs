@@ -44,7 +44,7 @@ test = hspec $ do
       tcTest  ("val mut list = vec![1,2,3];" ++
                "val a = list[0];" ++ 
                "val b = list[1];" ++
-               "set list[2] = 4;" ++
+               "list[2] = 4;" ++
                "return list[2]"
             ) TInt
 
@@ -123,14 +123,23 @@ test = hspec $ do
                "(list[0][0]).insert(0, 4);" ++ 
                "return ((list[0][0][0] == 4) && (list[0][0][1] == 1) && (list[0][0][2] == 2) && (list[0][0][3] == 3))"
             ) TBool
+      
+      tcTest  ("val mut list = vec![vec![vec![1,2,3]]];" ++ 
+               "val a = (list.remove(0))[0][2];" ++ 
+               "return (a == 3)"
+            ) TBool
 
       tcErrorTest  ("val mut list = vec![vec![vec![1,2,3]]];" ++ 
                "val a = list[0][0];" ++ 
                "return -1"
             ) 
+
+      tcErrorTest  ("val list = vec![1, Green];" ++
+                    "return 0"
+               )
             
       tcErrorTest  ("val list = vec![1];" ++
-                    "set list[0] = 3;" ++ 
+                    "list[0] = 3;" ++ 
                     "return 0"
                )
 
@@ -145,7 +154,7 @@ test = hspec $ do
                )
 
       tcErrorTest  ("val list = vec![1];" ++
-                    "set list[0] = 3;" ++ 
+                    "list[0] = 3;" ++ 
                     "return 0"
                )
 

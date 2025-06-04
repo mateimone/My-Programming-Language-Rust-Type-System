@@ -24,6 +24,10 @@ import Control.Monad.State.Strict
 -- type Env a = Map.Map Ident (a, Mutability)
 interp :: Stmt -> Eval ()
 
+interp (SExp e) = do
+    E.interp e
+    return ()
+
 -- Supports redeclaration of variables, be they mutable or immutable
 interp (SLet x e) = do
     val <- E.interp e
@@ -112,7 +116,7 @@ unwrapList ls [(VInt i)] elemToSet currentAddr = do
     h <- gets heap
     case valAtIdx of
         (Prim v) -> do
-            let newLs = (Prelude.take (fromInteger i) ls) ++ [elemToSet] ++ (Prelude.drop ((fromInteger i)+2) ls)
+            let newLs = (Prelude.take (fromInteger i) ls) ++ [elemToSet] ++ (Prelude.drop ((fromInteger i)+1) ls)
             modify (\s -> s { heap = M.insert currentAddr (OList newLs) h })
             h' <- gets heap
             liftIO $ print h'

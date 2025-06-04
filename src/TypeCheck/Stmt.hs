@@ -45,41 +45,111 @@ createVi = VI
 
 infer s@(SLet x e) = do
     t <- E.infer e
-    checkMoveNotAllowed t e
-    let c = isCopy t
-    voidNotAllowed t e s
-    insertVarT x (createVi t c True, Imm)
+    realT <- case t of
+              TList TUnknown -> throwError "Empty vector literal needs type annotation"
+              other -> return other
+    case realT of
+      TList t -> do
+        tup <- unwrapListTypeUntilEnd (TList t) 0
+        when (fst tup == TUnknown) $ throwError "Empty vector literal needs type annotation"
+      _ -> return ()
+    checkMoveNotAllowed realT e
+    let c = isCopy realT
+    voidNotAllowed realT e s
+    insertVarT x (createVi realT c True, Imm)
 
+-- change names of types
 infer s@(SLetAnn x ty e) = do
   t <- E.infer e
-  checkMoveNotAllowed t e
-  let c = isCopy t
-  voidNotAllowed t e s
-  if t == ty
-     then insertVarT x (createVi t c True, Imm) -- >> do {e <- get; (liftIO $ print (scopes e))}
+
+  -- for arrays that might be empty
+  -- let realT = case t of
+  --               TList TUnknown -> ty
+  --               other -> other
+
+  -- for nested arrays that might be empty
+  realUnwrappedType <- case (t, ty) of
+                  (TList rt, TList tty) -> do
+                    tup <- unwrapListTypeUntilEnd (TList rt) 0
+                    let realUnwrapped = fst tup
+                    let numberOfUnwrapsReal = snd tup
+
+                    tup2 <- unwrapListTypeUntilEnd (TList tty) 0
+                    let expectedUnwrapped = fst tup2
+                    let numberOfUnwrapsExpected = snd tup2
+                    if (numberOfUnwrapsReal == numberOfUnwrapsExpected) then
+                      case realUnwrapped of 
+                        TUnknown -> wrapTypeBack expectedUnwrapped numberOfUnwrapsReal
+                        other -> wrapTypeBack other numberOfUnwrapsReal
+                    else 
+                      throwError $ "Type mismatch for " ++ show x ++
+                                  ": annotation says " ++ show ty ++
+                                  " but expression has type " ++ show t
+
+                  (a, e) -> return a
+                    
+  checkMoveNotAllowed realUnwrappedType e
+  let c = isCopy realUnwrappedType
+  voidNotAllowed realUnwrappedType e s
+  if realUnwrappedType == ty
+     then insertVarT x (createVi realUnwrappedType c True, Imm) -- >> do {e <- get; (liftIO $ print (scopes e))}
      else throwError $
        "Type mismatch for " ++ show x ++
        ": annotation says " ++ show ty ++
-       " but expression has type " ++ show t
+       " but expression has type " ++ show realUnwrappedType
 
 infer s@(SLetM x e) = do
     t <- E.infer e
+    realT <- case t of
+              TList TUnknown -> throwError "Empty vector literal needs type annotation"
+              other -> return other
+    case realT of
+      TList t -> do
+        tup <- unwrapListTypeUntilEnd (TList t) 0
+        when (fst tup == TUnknown) $ throwError "Empty vector literal needs type annotation"
+      _ -> return ()
     checkMoveNotAllowed t e
     let c = isCopy t
     voidNotAllowed t e s
     insertVarT x (createVi t c True, Mut)
 
+-- change names of types
 infer s@(SLetMAnn x ty e) = do
   t <- E.infer e
-  checkMoveNotAllowed t e
-  let c = isCopy t
-  voidNotAllowed t e s
-  if t == ty
-     then insertVarT x (createVi t c True, Mut)
+  -- let realT = case t of
+  --               TList TUnknown -> ty
+  --               other -> other
+
+  -- for nested arrays that might be empty
+  realUnwrappedType <- case (t, ty) of
+                  (TList rt, TList tty) -> do
+                    tup <- unwrapListTypeUntilEnd (TList rt) 0
+                    let realUnwrapped = fst tup
+                    let numberOfUnwrapsReal = snd tup
+
+                    tup2 <- unwrapListTypeUntilEnd (TList tty) 0
+                    let expectedUnwrapped = fst tup2
+                    let numberOfUnwrapsExpected = snd tup2
+                    if (numberOfUnwrapsReal == numberOfUnwrapsExpected) then
+                      case realUnwrapped of 
+                        TUnknown -> wrapTypeBack expectedUnwrapped numberOfUnwrapsReal
+                        other -> wrapTypeBack other numberOfUnwrapsReal
+                    else 
+                      throwError $ "Type mismatch for " ++ show x ++
+                                  ": annotation says " ++ show ty ++
+                                  " but expression has type " ++ show t
+
+                  (a, e) -> return a
+
+  checkMoveNotAllowed realUnwrappedType e
+  let c = isCopy realUnwrappedType
+  voidNotAllowed realUnwrappedType e s
+  if realUnwrappedType == ty
+     then insertVarT x (createVi realUnwrappedType c True, Mut)
      else throwError $
        "Type mismatch for " ++ show x ++
        ": annotation says " ++ show ty ++
-       " but expression has type " ++ show t
+       " but expression has type " ++ show realUnwrappedType
 
 -- infer (SFunNp f retTy stmts lastE) = do
 
@@ -212,6 +282,18 @@ infer s@(SSetIdx (EVar vec) idxs el) = do
     when (eTy /= unwrappedType) $ 
       throwError $ "Set: List's " ++ show vec ++ " elements are of type " ++ show esTy ++ ", but element " ++ show el ++ " has type " ++ show eTy
     
+infer (SExp e) = do
+    E.infer e
+    return ()
+
+unwrapListTypeUntilEnd :: Type -> Int -> TC (Type, Int)
+unwrapListTypeUntilEnd (TList listT) n = unwrapListTypeUntilEnd listT (n+1)
+unwrapListTypeUntilEnd something n = return (something, n)
+
+wrapTypeBack :: Type -> Int -> TC Type
+wrapTypeBack t 0 = return t
+wrapTypeBack t n = wrapTypeBack (TList t) (n-1)
+
 unwrapListType :: Type -> Int -> TC Type
 unwrapListType something 0 = return something
 unwrapListType (TList listT) idxsLeft = unwrapListType listT (idxsLeft - 1)

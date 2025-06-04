@@ -58,7 +58,7 @@ test = hspec $ do
       interpTest  ("val mut list = vec![1,2,3];" ++
                "val a = list[0];" ++ 
                "val b = list[1];" ++
-               "set list[2] = 4;" ++
+               "list[2] = 4;" ++
                "return list[2]"
             ) (VInt 4)
 
@@ -132,6 +132,12 @@ test = hspec $ do
                "(list[0][0]).insert(0, 4);" ++ 
                "return ((list[0][0][0] == 4) && (list[0][0][1] == 1) && (list[0][0][2] == 2) && (list[0][0][3] == 3))"
             ) (VBool True)
+         
+      -- interpTest  ("val mut list = vec![vec![vec![1,2,3]]];" ++ 
+      --          "val a = (list.remove(0).remove(0))[0];" ++ 
+      --          "val b = a;" ++ 
+      --          "return b"
+      --       ) (VInt 1)
 
       interpErrorTest  ("val mut list = vec![vec![vec![1,2,3]]];" ++ 
                "val a = list[0][0];" ++ 
@@ -145,7 +151,7 @@ test = hspec $ do
          a `shouldSatisfy` isLeft
 
          b <- run ("val list = vec![1];" ++
-                    "set list[0] = 3;" ++ 
+                    "list[0] = 3;" ++ 
                     "return 0"
                )
          b `shouldSatisfy` isLeft
@@ -162,7 +168,7 @@ test = hspec $ do
                )
 
       interpErrorTest  ("val mut list = vec![1];" ++
-                    "set list[1] = 3;" ++ 
+                    "list[1] = 3;" ++ 
                     "return 0"
                )
 

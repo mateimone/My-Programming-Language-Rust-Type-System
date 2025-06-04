@@ -1,4 +1,9 @@
-val mut zz = vec![vec![vec![1]]];
-set zz[0][0][0] = 121;
-val a = (zz[0]).remove(0);
-return a[0]
+fun test(mut vc:List<List<int>>) -> int = {
+    (vc[0]).push(1);
+    (vc[0]).push(2);
+    return vc[0][3]
+}
+
+val mut a: List<List<int>> = vec![vec![]];
+
+return (test(vec![vec![]]))

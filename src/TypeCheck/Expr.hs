@@ -123,7 +123,7 @@ infer (EVec es) = do
     ets <- mapM infer es
     checkMultiple ets es
     case ets of
-        [] -> throwError "Empty vector literal needs type annotation"
+        [] -> return $ TList TUnknown -- throwError "Empty vector literal needs type annotation"
         t:ts -> 
             if (all (\ty -> ty == t) ts) then return (TList t)
             else throwError $ "All elements in vector " ++ show es ++ "must be of the same type"
@@ -175,6 +175,14 @@ infer (ERemove (EVar x) i) = do
         TList elTy -> return elTy
         _ -> throwError "The remove function works only on lists"
 
+infer (ERemove rmv@(ERemove vc ri) i) = do
+    tIdx <- infer i
+    when (tIdx /= TInt) $ throwError "Array index must be an integer"
+    tp <- infer rmv
+    case tp of
+        TList elTy -> return elTy
+        _ -> throwError  "Indexing works only on lists"
+
 -- infer (ERemove v@(EVec es) i) = do
 --     tIdx <- infer i
 --     when (tIdx /= TInt) $ throwError "Array index must be an integer"
@@ -204,16 +212,50 @@ infer (EApp f args) = do
     when (length paramsT_Muts /= length args) $
        throwError $ "function " ++ show f ++ " expects " ++ show (length paramsT_Muts) ++ " arguments"
     
-    forM_ (zip args paramsT_Muts) $ \(arg, expectedT) -> do
+    forM_ (zip args paramsT_Muts) $ \(arg, expected) -> do
         e <- get
         actualT <- infer arg
-        checkMoveNotAllowed actualT arg
-        when (actualT /= fst expectedT) $ throwError $ 
+        let expectedT = fst expected
+        -- let realT = case actualT of
+        --         TList TUnknown -> expectedT
+        --         other -> other
+
+  -- for nested arrays that might be empty
+        realUnwrappedType <- 
+            case (actualT, expectedT) of
+                (TList rt, TList tty) -> do
+                    tup <- unwrapListTypeUntilEnd (TList rt) 0
+                    let realUnwrapped = fst tup
+                    let numberOfUnwrapsReal = snd tup
+
+                    tup2 <- unwrapListTypeUntilEnd (TList tty) 0
+                    let expectedUnwrapped = fst tup2
+                    let numberOfUnwrapsExpected = snd tup2
+                    if (numberOfUnwrapsReal == numberOfUnwrapsExpected) then
+                        case realUnwrapped of 
+                            TUnknown -> wrapTypeBack expectedUnwrapped numberOfUnwrapsReal
+                            other -> wrapTypeBack other numberOfUnwrapsReal
+                    else 
+                        throwError $ "Type mismatch in call to " ++ show f ++
+                                    ": expected " ++ show expected ++
+                                    " but got " ++ show actualT
+                                    
+                (a, e) -> return a
+        checkMoveNotAllowed realUnwrappedType arg
+        when (realUnwrappedType /= expectedT) $ throwError $ 
             "type mismatch in call to " ++ show f ++
-            ": expected " ++ show expectedT ++
-            " but got " ++ show actualT
+            ": expected " ++ show expected ++
+            " but got " ++ show realUnwrappedType
 
     return retTy
+
+unwrapListTypeUntilEnd :: Type -> Int -> TC (Type, Int)
+unwrapListTypeUntilEnd (TList listT) n = unwrapListTypeUntilEnd listT (n+1)
+unwrapListTypeUntilEnd something n = return (something, n)
+
+wrapTypeBack :: Type -> Int -> TC Type
+wrapTypeBack t 0 = return t
+wrapTypeBack t n = wrapTypeBack (TList t) (n-1)
 
 peekVarType :: Ident -> TC Type
 peekVarType x = do
