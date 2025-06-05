@@ -4,8 +4,7 @@ fun test(mut vc:List<List<int>>) -> int = {
     return vc[0][3]
 }
 
-val mut a: List<List<int>> = vec![vec![1,2,3]];
-a[0] = vec![];
-(a[0]).push(1);
+val a: List<List<int>> = vec![vec![1],vec![],vec![(True)]];
+val p = a[1][0];
 
-return a[0][0]
+return p

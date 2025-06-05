@@ -125,7 +125,8 @@ infer (EVec es) = do
     case ets of
         [] -> return $ TList TUnknown -- throwError "Empty vector literal needs type annotation"
         t:ts -> 
-            if (all (\ty -> ty == t) ts) then return (TList t)
+            if (all (\ty -> (ty == t) || (fst (unwrapListTypeUntilEndNM ty 0) == TUnknown) || (fst (unwrapListTypeUntilEndNM ty 0) == TUnknown)) ts) 
+                then return (TList t)
             else throwError $ "All elements in vector " ++ show es ++ "must be of the same type"
 
 -- NOTE FOR FUTURE
@@ -252,6 +253,10 @@ infer (EApp f args) = do
 unwrapListTypeUntilEnd :: Type -> Int -> TC (Type, Int)
 unwrapListTypeUntilEnd (TList listT) n = unwrapListTypeUntilEnd listT (n+1)
 unwrapListTypeUntilEnd something n = return (something, n)
+
+unwrapListTypeUntilEndNM :: Type -> Int -> (Type, Int)
+unwrapListTypeUntilEndNM (TList listT) n = unwrapListTypeUntilEndNM listT (n+1)
+unwrapListTypeUntilEndNM something n = (something, n)
 
 wrapTypeBack :: Type -> Int -> TC Type
 wrapTypeBack t 0 = return t
