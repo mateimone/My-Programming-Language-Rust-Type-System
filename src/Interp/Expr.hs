@@ -4,12 +4,13 @@ import Evaluator
 
 import Env hiding (gets, modify)
 import Value
-import Lang.Abs ( Exp(..), Ident, Stmt )
+import Lang.Abs ( Exp(..), Ident(..), Stmt )
 import qualified Data.Map.Strict as M
 import Control.Monad
 import Control.Monad.Trans.State.Strict
 import {-# SOURCE #-} Interp.Stmt as S
 import Data.List.Extra
+import System.Random (mkStdGen)
 
 
 arithmetic :: (Exp, Exp) -> (Integer -> Integer -> Integer) -> Eval Value
@@ -18,6 +19,16 @@ arithmetic (e1, e2) f = do
     v2 <- Interp.Expr.interp e2
     case (v1, v2) of
         (VInt i1, VInt i2) -> return $ VInt (f i1 i2)
+        (VRef a, VInt i2) -> do 
+            (Prim (VInt i1)) <- getBorrowedValue a
+            return $ VInt (f i1 i2)
+        (VInt i1, VRef a) -> do 
+            (Prim (VInt i2)) <- getBorrowedValue a
+            return $ VInt (f i1 i2)
+        (VRef a, VRef b) -> do
+            (Prim (VInt i1)) <- getBorrowedValue a
+            (Prim (VInt i2)) <- getBorrowedValue b
+            return $ VInt (f i1 i2)
         _                  -> throwError "Arithmetic can only be performed on integers"
 
 logic :: (Exp, Exp) -> (Bool -> Bool -> Bool) -> Eval Value
@@ -26,6 +37,16 @@ logic (e1, e2) f =  do
     v2 <- Interp.Expr.interp e2
     case (v1, v2) of
         (VBool b1, VBool b2) -> return $ VBool (f b1 b2)
+        -- (VRef a, VBool b2) -> do 
+        --     (Prim (VBool b1)) <- getBorrowedValue a
+        --     return $ VBool (f b1 b2)
+        -- (VBool b1, VRef a) -> do 
+        --     (Prim (VBool b2)) <- getBorrowedValue a
+        --     return $ VBool (f b1 b2)
+        -- (VRef a, VRef b) -> do
+        --     (Prim (VBool b1)) <- getBorrowedValue a
+        --     (Prim (VBool b2)) <- getBorrowedValue b
+        --     return $ VBool (f b1 b2)
         _                    -> throwError "Boolean operations can only be performed on booleans"
 
 -- EXPRESSION INTERPRETER ------------------------------------------------------------
@@ -49,11 +70,12 @@ interp (ENot e) =  do
     v <- Interp.Expr.interp e
     case v of
         VBool b -> return $ VBool (not b)
+        VRef a -> do
+            (Prim (VBool b)) <- getBorrowedValue a
+            return $ VBool (not b)
         _       -> throwError "Boolean operations can only be performed on booleans"
 interp (EAnd e1 e2) = logic (e1, e2) (&&)
 interp (EOr e1 e2)  = logic (e1, e2) (||)
-
-
 
 -- Comparisons
 interp (EEq e1 e2) = do
@@ -62,31 +84,52 @@ interp (EEq e1 e2) = do
     case (v1, v2) of
         (VBool b1, VBool b2) -> return $ VBool (b1 == b2)
         (VInt  i1, VInt  i2) -> return $ VBool (i1 == i2)
-        (VLight c1, VLight c2) -> pure (VBool (c1 == c2))
+        (VLight c1, VLight c2) -> return $ VBool (c1 == c2)
+        (VList l1, VList l2) -> return $ VBool (l1 == l2)
+        (VRef a, VRef b) -> do
+            vr1 <- maxUnwrapBorrowedValue (VRef a)
+            vr2 <- maxUnwrapBorrowedValue (VRef b)
+            return $ VBool (vr1 == vr2)
         _                    -> throwError "Cannot compare different types"
 interp (ELt e1 e2) = do
     v1 <- Interp.Expr.interp e1
     v2 <- Interp.Expr.interp e2
     case (v1, v2) of
         (VInt i1, VInt i2) -> return $ VBool (i1 < i2)
+        (VRef a, VRef b) -> do
+            (VInt v1) <- maxUnwrapBorrowedValue (VRef a)
+            (VInt v2) <- maxUnwrapBorrowedValue (VRef b)
+            return $ VBool (v1 < v2)
         _                  -> throwError "Cannot compare different types"
 interp (EGt e1 e2) = do
     v1 <- Interp.Expr.interp e1
     v2 <- Interp.Expr.interp e2
     case (v1, v2) of
         (VInt i1, VInt i2) -> return $ VBool (i1 > i2)
+        (VRef a, VRef b) -> do
+            (VInt v1) <- maxUnwrapBorrowedValue (VRef a)
+            (VInt v2) <- maxUnwrapBorrowedValue (VRef b)
+            return $ VBool (v1 > v2)
         _                  -> throwError "Cannot compare different types"
 interp (ELeq e1 e2) = do
     v1 <- Interp.Expr.interp e1
     v2 <- Interp.Expr.interp e2
     case (v1, v2) of
         (VInt i1, VInt i2) -> return $ VBool (i1 <= i2)
+        (VRef a, VRef b) -> do
+            (VInt v1) <- maxUnwrapBorrowedValue (VRef a)
+            (VInt v2) <- maxUnwrapBorrowedValue (VRef b)
+            return $ VBool (v1 <= v2)
         _                  -> throwError "Cannot compare different types"
 interp (EGeq e1 e2) = do
     v1 <- Interp.Expr.interp e1
     v2 <- Interp.Expr.interp e2
     case (v1, v2) of
         (VInt i1, VInt i2) -> return $ VBool (i1 >= i2)
+        (VRef a, VRef b) -> do
+            (VInt v1) <- maxUnwrapBorrowedValue (VRef a)
+            (VInt v2) <- maxUnwrapBorrowedValue (VRef b)
+            return $ VBool (v1 >= v2)
         _                  -> throwError "Cannot compare different types"
 
 -- Control flow
@@ -137,8 +180,10 @@ interp (EVec es) = do
 -- UNWRAP FOR PRIMITIVES
 interp (EIdx vec i) = do
     o <- Interp.Expr.interp vec
-    liftIO $ print (show o)
-    (VList addr) <- Interp.Expr.interp vec
+    -- liftIO $ print (show o)
+    (VList addr) <- case o of
+                        (VList a) -> return (VList a)
+                        r@(VRef a) -> maxUnwrapBorrowedValue r
     list@(OList elems) <- readObject addr
     (VInt idx) <- Interp.Expr.interp i
     -- idx <- case eI of
@@ -155,6 +200,18 @@ interp (EIdx vec i) = do
             -- (Prim _) -> throwError "Non-copyable element may not be moved"
             -- _ -> throwError $ "No idea what should be here.\n" ++ show vec ++ "\n" ++ show i ++ "\n" ++ show elems
         )
+
+interp (ERef exp) = do
+    e <- Interp.Expr.interp exp
+    
+    case exp of
+        (EVar var) -> do
+            a@(Addr refAddr) <- insertInStore (var, Prim e, Imm)
+            return (VRef a)
+        otherVal -> do
+            let (tempVarString, g) = randomString (mkStdGen 42)
+            a@(Addr refAddr) <- insertInStore (Ident tempVarString, Prim e, Imm) 
+            return (VRef a)
 
 -- What do about Refs ????
 -- interp (EPush vec el) = do

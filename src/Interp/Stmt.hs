@@ -99,7 +99,10 @@ interp (SInsert vec i el) = do
     replaceObject addr (OList newList)
 
 interp (SSetIdx vec idxs e) = do
-    (VList addr) <- E.interp vec
+    v <- E.interp vec
+    (VList addr) <- case v of
+                      s@(VList _) -> return s
+                      t@(VRef a) -> maxUnwrapBorrowedValue t
     h <- gets heap
     let (Just (OList list)) = M.lookup addr h
     liftIO $ print addr

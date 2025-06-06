@@ -1,10 +1,14 @@
-fun test(mut vc:List<List<int>>) -> int = {
-    (vc[0]).push(1);
-    (vc[0]).push(2);
-    return vc[0][3]
+val a = &(&(&(&(vec![1]))));
+
+val mut c = Green;
+val mut d = &c;
+val t = True;
+
+if (t == True) {
+    ass d = &(Red);
+    val mut d = &(Yellow);
+    ass d = &(Yellow);
 }
 
-val a: List<List<int>> = vec![vec![1],vec![],vec![(True)]];
-val p = a[1][0];
 
-return p
+return (d == &(Yellow))

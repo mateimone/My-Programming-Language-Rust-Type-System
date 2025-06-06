@@ -22,11 +22,12 @@ IndexList. IndexList ::= "[" Exp "]" ;
 
 -- TYPES --------------------------------------------------------------
 
-TInt.    Type1 ::= "int";
-TBool.   Type1 ::= "bool";
-TUnit.   Type1 ::= "unit";
-TLight.  Type1 ::= "Light";
-TList.   Type1 ::= "List" "<" Type ">";
+TInt.     Type1 ::= "int";
+TBool.    Type1 ::= "bool";
+TUnit.    Type1 ::= "unit";
+TLight.   Type1 ::= "Light";
+TList.    Type1 ::= "List" "<" Type ">";
+TRef.     Type1 ::= "&" Type;
 TUnknown. Type1 ::= "?" ;
 
 _. Type2 ::= "(" Type ")";
@@ -98,6 +99,10 @@ EIdx. Exp7 ::= Exp7 "[" Exp7 "]" ;
 
 -- List operations (of type unit)
 ERemove. Exp8 ::= Exp8 "." "remove" "(" Exp7 ")" ;
+
+-- References (borrows)
+ERef.    Exp8 ::= "&" Exp8 ;
+EMutRef. Exp8 ::= "&mut" Exp8 ;
 
 -- This part sets up the order of operation
 _. Exp8 ::= "(" Exp ")" ;

@@ -22,19 +22,23 @@ data Value
     | VBool Bool
     | VUnit 
     | VLight Color
-    | VList Addr
+    | VList Addr  -- address in heap
+    | VRef Addr   -- address in store
   deriving (Show, Eq)
 
 isCopy :: Type -> Bool
 isCopy TInt = True
 isCopy TBool = True
 isCopy TUnit = False
+isCopy (TRef t) = True
 isCopy _ = False -- TLight, TList
 
 data VarInfo = VI
   { ty :: Type
   , copyFlag :: Bool
   , live :: Bool
+  , immutableBorrows :: Int
+  , mutableBorrows :: Int
   }
   deriving (Show, Eq)
 

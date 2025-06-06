@@ -8,9 +8,12 @@ module Env
   , TC,   runTC
   , withScope, lookupVar, insertVar, assignVar, lookupFun, insertFun
   , withScopeT, lookupVarT, insertVarT, lookupFunT, insertFunT
+  , insertInStore, getBorrowedValue, maxUnwrapBorrowedValue
+  , insertInStoreT, maxUnwrapType
   , readPrim
   , freshAddr, insertInHeap, readObject, replaceObject
   , Slot(..)
+  , randomString
   ) where
 
 import qualified Data.Map.Strict as M
@@ -18,20 +21,23 @@ import Control.Monad.State.Strict
 import Control.Monad.Except
 import Control.Monad.IO.Class      ( MonadIO(..) )
 
-import Lang.Abs (Ident, Type)
-import Value    (Value, Closure, TClosure, Mutability, Mutability( Imm,Mut ), Object, Color, Slot(..), Addr(..), VarInfo)
+import Lang.Abs (Ident, Type(..))
+import Value    (Value(..), Closure, TClosure, Mutability, Mutability( Imm,Mut ), Object, Color, Slot(..), Addr(..), VarInfo)
 import Data.Set
 import Data.Int
+import System.Random (StdGen, randomR, mkStdGen)
+import Data.Traversable (mapAccumL)
 
 data Env v f = Env
-  { scopes :: [M.Map Ident (v, Mutability)]
+  { scopes :: [M.Map Ident (v, Mutability {-, MutableBorrows-})]
   , funs :: M.Map Ident (f, Mutability)
   , heap :: M.Map Addr Object
-  , nextA :: Addr
+  , nextA :: Addr  -- to remove, use length of heap instead
+  , refStore :: [M.Map Addr (Ident, v, Mutability {-reference mutability-})] --, Mutability {-, MutableBorrows-})]
   }
 
 empty :: Env v f
-empty = Env [M.empty] M.empty M.empty (Addr 0)
+empty = Env [M.empty] M.empty M.empty (Addr 0) [M.empty]
 
 type App env err a = StateT env (ExceptT err IO) a
 
@@ -53,6 +59,55 @@ runTC  :: TCEnv  -> TC a -> IO (Either String (a, TCEnv))
 runTC = runApp
 
 -- TC a = App (Env Type TClosure) String a
+
+insertInStore :: (Ident, Slot Value, Mutability) -> Eval Addr
+insertInStore tup = do
+  en <- get
+  let top = head $ refStore en
+  let rest = tail $ refStore en
+  let a@(Addr addr) = nextA en
+
+  modify (\e -> e { 
+    refStore = (M.insert a tup top):rest ,
+    nextA = (Addr $ (addr + 1))
+    })
+  return a
+
+getBorrowedValue :: Addr -> Eval (Slot Value)
+getBorrowedValue (Addr addr) = do
+  store <- gets refStore
+  let (Just (id, val, _)) = M.lookup (Addr addr) (head store)
+  return val
+
+maxUnwrapBorrowedValue :: Value -> Eval Value
+maxUnwrapBorrowedValue (VRef (Addr addr)) = do
+  store <- gets refStore
+  let (Just (id, Prim val, _)) = M.lookup (Addr addr) (head store)
+  maxUnwrapBorrowedValue val
+maxUnwrapBorrowedValue other = return other
+
+maxUnwrapType :: Type -> TC Type
+maxUnwrapType (TRef t) = maxUnwrapType t
+maxUnwrapType t = return t 
+
+insertInStoreT :: (Ident, VarInfo, Mutability) -> TC Addr
+insertInStoreT tup = do
+  en <- get
+  let top = head $ refStore en
+  let rest = tail $ refStore en
+  let a@(Addr addr) = nextA en
+
+  modify (\e -> e { 
+    refStore = (M.insert a tup top):rest ,
+    nextA = (Addr $ (addr + 1))
+    })
+  return a
+
+-- insertVarT :: Ident -> (VarInfo, Mutability) -> TC ()
+-- insertVarT x tup = modify (\env -> 
+--   let scope  = topScope env
+--       scope' = M.insert x tup scope
+--   in  env { scopes = scope':(tail (scopes env)) })
 
 freshAddr :: Eval Addr
 freshAddr = do
@@ -218,3 +273,14 @@ lookupFunT f = do
 
 insertFunT :: Ident -> (TClosure, Mutability) -> TC ()
 insertFunT f p = modify $ \env -> env { funs = M.insert f p (funs env) }
+
+allowedChars :: String
+allowedChars = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "_*-@#"
+
+randomString :: StdGen -> (String, StdGen)
+randomString gen =
+  let len = length allowedChars
+      pickChar g = let (i, g') = randomR (0, len - 1) g
+                   in (g', allowedChars !! i)
+      (gen', chars) = mapAccumL (\g _ -> pickChar g) gen [1..6]
+  in (chars, gen')

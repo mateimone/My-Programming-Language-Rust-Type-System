@@ -48,7 +48,76 @@ test = hspec $ do
                "return a"
             ) (VInt 1)
 
-   describe "typeChecker: list tests" $ do
+   describe "Interpreter: immutable reference tests" $ do
+      interpTest  ("val a = Green;" ++ 
+            "val b = &a;" ++ 
+            "val c = &a;" ++ 
+            "return (b == c) && (b == &(Green))"
+         ) (VBool True)
+
+      interpTest  ("val a = &(&(vec![vec![3]]));" ++ 
+               "val b = &a;" ++ 
+               "val c = &a;" ++ 
+               "return (b == c) && (b[0][0] == 3)"
+            ) (VBool True)
+
+      interpTest  ("val a = True;" ++ 
+               "val b = &(&(&a));" ++ 
+               "val c = &(&(&a));" ++ 
+               "return (b == c)"
+            ) (VBool True)
+
+      interpTest  ("val a = vec![vec![3]];" ++ 
+               "val b = &a;" ++ 
+               "val c = &a;" ++ 
+               "return (b == c) && (b[0][0] == 3)"
+            ) (VBool True)
+
+      interpTest  ("val a = 10;" ++ 
+               "val b = &a;" ++ 
+               "val c = &a;" ++ 
+               "return (a + b == 20) && (b + c == 20)"
+            ) (VBool True)
+
+      interpTest  ("val a = 10;" ++ 
+               "val b = &a;" ++ 
+               "val c = &(&a);" ++ 
+               "return (&a >= b) && (&b >= c) && (c >= &(&a))"
+            ) (VBool True)
+
+      interpTest  ("val a = 10;" ++ 
+               "val b = &a;" ++ 
+               "val c = &(&a);" ++ 
+               "return (&a >= b) && (&b >= c) && (c >= &(&a))"
+            ) (VBool True)
+
+      interpTest  ("fun test(a:&List<int>) -> int = {return a[1]}" ++ 
+               "val a = &(vec![1,2,3]);" ++ 
+               "return test(a)"
+            ) (VInt 2)
+
+      interpTest  ("fun test(i: &(&List<&int>)) -> &int = {return i[0]}" ++ 
+               "val a = Green;" ++
+               "val b = &a;" ++
+               "val d = &a;" ++
+               "val e = &(Red);" ++
+               "val o = e;" ++
+               "val nnn = &(&(Green));" ++
+               "return (test(&(&(vec![&(1)]))) == &(1))"
+            ) (VBool True)
+
+   describe "Interpreter: list tests" $ do
+      interpTest  ("val mut list: List<int> = vec![];" ++
+                "list.push(1);" ++
+                "return list[0]"
+            ) (VInt 1)
+
+      interpTest  ("val mut list: List<List<int>> = vec![vec![],vec![]];" ++
+                "(list[0]).push(1);" ++
+                "return list[0][0]"
+            ) (VInt 1)
+
+
       interpTest  ("val list = vec![1,2,3];" ++
                "val a = list[0];" ++ 
                "val b = list[1];" ++

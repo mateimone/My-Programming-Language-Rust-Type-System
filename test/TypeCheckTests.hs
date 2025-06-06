@@ -34,7 +34,106 @@ test = hspec $ do
       tcErrorTest "True && 3"
       tcErrorTest "fun increment (x : int) -> int = {return x + 1} val b = True; return increment(b)"
 
+   describe "typeChecker: immutable reference tests" $ do
+      -- need to test dereferencing!!!
+
+      tcTest  ("val a = Green;" ++ 
+               "val b = &a;" ++ 
+               "val c = &a;" ++ 
+               "return (b == c) && (b == &(Green))"
+            ) TBool
+
+      tcTest  ("val a = &(&(vec![vec![3]]));" ++ 
+               "val b = &a;" ++ 
+               "val c = &a;" ++ 
+               "return (b == c) && (b[0][0] == 3)"
+            ) TBool
+
+      tcTest  ("val a = True;" ++ 
+               "val b = &(&(&a));" ++ 
+               "val c = &(&(&a));" ++ 
+               "return (b == c)"
+            ) TBool
+
+      tcTest  ("val a = vec![vec![3]];" ++ 
+               "val b = &a;" ++ 
+               "val c = &a;" ++ 
+               "return (b == c) && (b[0][0] == 3)"
+            ) TBool
+
+      tcTest  ("val a = 10;" ++ 
+               "val b = &a;" ++ 
+               "val c = &a;" ++ 
+               "return (a + b == 20) && (b + c == 20)"
+            ) TBool
+
+      tcTest  ("val a = 10;" ++ 
+               "val b = &a;" ++ 
+               "val c = &a;" ++ 
+               "return (a + b == 20) && (b + c == 20)"
+            ) TBool
+
+      tcTest  ("val a = 10;" ++ 
+               "val b = &a;" ++ 
+               "val c = &(&a);" ++ 
+               "return (&a >= b) && (&b >= c) && (c >= &(&a))"
+            ) TBool
+
+      tcTest  ("val a = 10;" ++ 
+               "val b = &a;" ++ 
+               "val c = &(&a);" ++ 
+               "return (&a >= b) && (&b >= c) && (c >= &(&a))"
+            ) TBool
+
+      tcTest  ("fun test(a:&List<int>) -> int = {return a[1]}" ++ 
+               "val a = &(vec![1,2,3]);" ++ 
+               "return test(a)"
+            ) TInt
+
+      tcTest  ("fun test(i: &(&List<&int>)) -> &int = {return i[0]}" ++ 
+               "val a = Green;" ++
+               "val b = &a;" ++
+               "val d = &a;" ++
+               "val e = &(Red);" ++
+               "val o = e;" ++
+               "val nnn = &(&(Green));" ++
+               "return (test(&(&(vec![&(1)]))) == &(1))"
+            ) TBool
+
+      tcErrorTest  ("val a = 10;" ++ 
+                    "val b = &a;" ++ 
+                    "val c = &a;" ++ 
+                    "return (a + (&b) == 20) && (b + c == 20)"
+                  )
+
+      tcErrorTest  ("val a = 10;" ++ 
+                    "val b = &a;" ++ 
+                    "return (b >= a)"
+                  ) 
+
+      tcErrorTest  ("val a = 10;" ++ 
+                    "val b = &(&a);" ++ 
+                    "val c = &a;" ++ 
+                    "return (b + b == 0) && (c + b == 0)"
+                  )
+
+      
+
    describe "typeChecker: list tests" $ do
+      tcTest  ("val mut list: List<int> = vec![];" ++
+                "list.push(1);" ++
+                "return list[1]"
+            ) TInt
+
+      tcTest  ("val mut list: List<List<int>> = vec![vec![],vec![]];" ++
+                "(list[0]).push(1);" ++
+                "return list[0][0]"
+            ) TInt
+
+      tcTest  ("fun test(x:List<int>) -> int = {return x[0]}" ++
+               "return test(vec![1])"
+            ) TInt
+
       tcTest  ("val list = vec![1,2,3];" ++
                "val a = list[0];" ++ 
                "val b = list[1];" ++
@@ -128,6 +227,8 @@ test = hspec $ do
                "val a = (list.remove(0))[0][2];" ++ 
                "return (a == 3)"
             ) TBool
+
+      tcErrorTest  "val list = vec![]; return 0"
 
       tcErrorTest  ("val mut list = vec![vec![vec![1,2,3]]];" ++ 
                "val a = list[0][0];" ++ 

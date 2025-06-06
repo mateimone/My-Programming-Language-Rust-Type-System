@@ -7,7 +7,8 @@ import Env hiding (modify)
 import Value ( TClosure( TFun )
              , Mutability( Imm, Mut )
              , VarInfo(..)
-             , isCopy )
+             , isCopy
+             , Addr(..) )
 
 import Lang.Abs ( Exp(..)
                 , Ident
@@ -34,6 +35,9 @@ arithmetic (e1, e2) = do
     t2 <- infer e2
     case (t1, t2) of
         (TInt, TInt) -> return TInt
+        (TRef TInt, TInt) -> return TInt
+        (TInt, TRef TInt) -> return TInt
+        (TRef TInt, TRef TInt) -> return TInt
         _            -> throwError "Arithmetic can only be performed on integers"
 
 logic :: (Exp, Exp) -> TC Type
@@ -42,6 +46,9 @@ logic (e1, e2) =  do
     t2 <- infer e2
     case (t1, t2) of
         (TBool, TBool) -> return TBool
+        -- (TRef TBool, TBool) -> return TBool
+        -- (TBool, TRef TBool) -> return TBool
+        -- (TRef TBool, TRef TBool) -> return TBool
         _              -> throwError "Boolean operations can only be performed on booleans"
 
 comparison :: (Exp, Exp) -> TC Type
@@ -50,6 +57,9 @@ comparison (e1, e2) =  do
     t2 <- infer e2
     case (t1, t2) of
         (TInt, TInt) -> return TBool
+        -- (TRef TInt, TInt) -> return TBool
+        -- (TInt, TRef TInt) -> return TBool
+        (TRef t1, TRef t2) -> if t1 == t2 then return TBool else throwError $ "Cannot compare " ++ show t1 ++ " with " ++ show t2
         (t1,   t2  ) -> throwError $ "Cannot compare " ++ show t1 ++ " with " ++ show t2
 
 -- EXPRESSION TYPE CHECKER -----------------------------------------------------------
@@ -74,6 +84,7 @@ infer (ENot e) = do
     t <- infer e 
     case t of
         TBool -> return TBool
+        TRef TBool -> return TBool
         _     -> throwError "Boolean operations can only be performed on booleans"
 infer (EAnd e1 e2) = logic (e1, e2) 
 infer (EOr  e1 e2) = logic (e1, e2) 
@@ -108,13 +119,32 @@ infer (EGeq e1 e2) = comparison (e1, e2)
 infer (EVar x) = do 
     tup <- lookupVarT x
     let vi = fst tup
-    let mu = snd tup
+    let mut = snd tup
     when (live vi == False) $ -- if vi is not live anymore
         throwError $ "Variable" ++ show x ++ "was moved"
     when (copyFlag vi == False) $ do -- move value if variable not primitive
-        modify (\env -> env { scopes= M.insert x (vi{ live=False },mu) (head $ scopes env) : (tail $ scopes env)} )
+        modify (\env -> env { scopes= M.insert x (vi{ live=False },mut) (head $ scopes env) : (tail $ scopes env)} )
     return (ty vi)
     
+infer (ERef exp) = do
+    -- e <- infer exp
+    -- (VI (TList esTy) _ live, mut) <- lookupVarT e
+    case exp of
+        (EVar var) -> do
+            tup@(VI varTy _ live ib mb, mut) <- lookupVarT var
+            when (not live) $ throwError $ "Variable " ++ show var ++ " was moved"
+            when (mb /= 0) $ throwError "Cannot have immutable references while also having mutable references"
+            let vi = fst tup
+            modify (\env -> env { scopes= M.insert var (vi{ immutableBorrows = (ib+1) },mut) (head $ scopes env) : (tail $ scopes env)} )
+            -- _ <- insertInStoreT (var, fst v)
+            return (TRef varTy)
+        otherVal -> do
+            -- let (tempVarString, g) = randomString (mkStdGen 42)
+            -- a@(Addr refAddr) <- insertInStore (Ident tempVarString, Prim e)
+            e <- infer exp
+            return (TRef e)
+
+
 infer ERed    = return TLight
 infer EYellow = return TLight
 infer EGreen  = return TLight
@@ -134,13 +164,15 @@ infer (EVec es) = do
 -- UNWRAP FOR PRIMITIVES
 infer (EIdx (EVar x) i) = do
     tVec <- peekVarType x
+    (TList elTy) <- case tVec of
+                      s@(TList _) -> return s
+                      (TRef t) -> maxUnwrapType tVec
+                      -- (TMutRef t) -> if mut == Imm then throwError $ "Set: Cannot borrow " ++ show vec ++ " as mutable, as it is behind a & reference"
+                      --             else maxUnwrapType t
+                      _ -> throwError $ "Cannot index non-arrays " ++ show x
     tIdx <- infer i
     when (tIdx /= TInt) $ throwError "Array index must be an integer"
-    case tVec of
-        TList elTy -> return elTy
-            -- | isCopy elTy -> return elTy
-            -- | otherwise -> throwError "Cannot move non-copyable type from list"
-        _ -> throwError "Indexing works only on lists"
+    return elTy
 
 infer (EIdx v@(EVec es) i) = do
     tIdx <- infer i
@@ -166,15 +198,30 @@ infer (EIdx rmv@(ERemove vc ri) i) = do
     tp <- infer rmv
     case tp of
         TList elTy -> return elTy
-        _ -> throwError  "Indexing works only on lists"
+        _ -> throwError "Indexing works only on lists"
+
+infer (EIdx r@(ERef ref) i) = do
+    tIdx <- infer i
+    when (tIdx /= TInt) $ throwError "Array index must be an integer"
+    tp <- infer r
+    liftIO $ print tp
+    unwrapped <- maxUnwrapType tp
+    liftIO $ print unwrapped
+    case unwrapped of 
+        TList elTy -> return elTy
+        _ -> throwError "Indexing works only on lists"
 
 infer (ERemove (EVar x) i) = do
     tVec <- peekVarType x
+    (TList elTy) <- case tVec of
+                      s@(TList _) -> return s
+                      (TRef t) -> throwError $ "Set: Cannot borrow " ++ show x ++ " as mutable, as it is behind a & reference"
+                      -- (TMutRef t) -> if mut == Imm then throwError $ "Set: Cannot borrow " ++ show vec ++ " as mutable, as it is behind a & reference"
+                      --             else maxUnwrapType t
+                      _ -> throwError "The remove function works only on lists"
     tIdx <- infer i
     when (tIdx /= TInt) $ throwError "Remove: Array index must be an integer"
-    case tVec of
-        TList elTy -> return elTy
-        _ -> throwError "The remove function works only on lists"
+    return elTy
 
 infer (ERemove rmv@(ERemove vc ri) i) = do
     tIdx <- infer i

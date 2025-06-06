@@ -44,6 +44,7 @@ library lang
                     , grammar
                     , containers
                     , extra >= 1.7
+                    , random >= 1.2
 
 -- the main executable which lets you run the interpreter
 executable main

@@ -40,7 +40,7 @@ checkMoveNotAllowed _ _ = return ()
 
 infer :: Stmt -> TC ()
 
-createVi :: Type -> Bool -> Bool -> VarInfo
+createVi :: Type -> Bool -> Bool -> Int -> Int -> VarInfo
 createVi = VI
 
 infer s@(SLet x e) = do
@@ -56,7 +56,7 @@ infer s@(SLet x e) = do
     checkMoveNotAllowed realT e
     let c = isCopy realT
     voidNotAllowed realT e s
-    insertVarT x (createVi realT c True, Imm)
+    insertVarT x (createVi realT c True 0 0, Imm)
 
 -- change names of types
 infer s@(SLetAnn x ty e) = do
@@ -92,7 +92,7 @@ infer s@(SLetAnn x ty e) = do
   let c = isCopy realUnwrappedType
   voidNotAllowed realUnwrappedType e s
   if realUnwrappedType == ty
-     then insertVarT x (createVi realUnwrappedType c True, Imm) -- >> do {e <- get; (liftIO $ print (scopes e))}
+     then insertVarT x (createVi realUnwrappedType c True 0 0, Imm) -- >> do {e <- get; (liftIO $ print (scopes e))}
      else throwError $
        "Type mismatch for " ++ show x ++
        ": annotation says " ++ show ty ++
@@ -108,10 +108,11 @@ infer s@(SLetM x e) = do
         tup <- unwrapListTypeUntilEnd (TList t) 0
         when (fst tup == TUnknown) $ throwError "Empty vector literal needs type annotation"
       _ -> return ()
+    
     checkMoveNotAllowed t e
     let c = isCopy t
     voidNotAllowed t e s
-    insertVarT x (createVi t c True, Mut)
+    insertVarT x (createVi t c True 0 0, Mut)
 
 -- change names of types
 infer s@(SLetMAnn x ty e) = do
@@ -145,7 +146,7 @@ infer s@(SLetMAnn x ty e) = do
   let c = isCopy realUnwrappedType
   voidNotAllowed realUnwrappedType e s
   if realUnwrappedType == ty
-     then insertVarT x (createVi realUnwrappedType c True, Mut)
+     then insertVarT x (createVi realUnwrappedType c True 0 0, Mut)
      else throwError $
        "Type mismatch for " ++ show x ++
        ": annotation says " ++ show ty ++
@@ -154,7 +155,7 @@ infer s@(SLetMAnn x ty e) = do
 -- infer (SFunNp f retTy stmts lastE) = do
 
 infer (SFun f params retTy stmts lastE) = do
-  let bindInfo = [ (name, (VI t (isCopy t) True, if isMut then Mut else Imm))
+  let bindInfo = [ (name, (VI t (isCopy t) True 0 0, if isMut then Mut else Imm))
                | p <- params
                , let (name, t, isMut) = case p of
                        ArgImm nm ty -> (nm , ty , False)
@@ -243,8 +244,14 @@ infer i@(SIfElse cond thn els) = do
 
 infer s@(SPush (EVar vec) el) = do
     -- (TList esTy) <- infer vec
-    (VI (TList esTy) _ live, mut) <- lookupVarT vec
+    (VI tp _ live _ _, mut) <- lookupVarT vec
     when (not live) $ throwError $ "List " ++ show vec ++ " was moved"
+    (TList esTy) <- case tp of
+                      s@(TList _) -> return s
+                      (TRef t) -> throwError $ "Set: Cannot borrow " ++ show vec ++ " as mutable, as it is behind a & reference"
+                      -- (TMutRef t) -> if mut == Imm then throwError $ "Set: Cannot borrow " ++ show vec ++ " as mutable, as it is behind a & reference"
+                      --             else maxUnwrapType t
+                      _ -> throwError $ "Cannot use the push function for arrays on non-arrays " ++ show vec
     when (mut == Imm) $ throwError $ "List " ++ show vec ++ " is immutable"
     eTy <- E.infer el
     checkMoveNotAllowed eTy el
@@ -265,9 +272,14 @@ infer s@(SPush prevE@(EIdx v prevI) el) = do
 
 
 infer s@(SInsert (EVar vec) i el) = do
-  (VI (TList esTy) _ live, mut) <- lookupVarT vec
+  (VI tp _ live _ _, mut) <- lookupVarT vec
   when (not live) $ throwError $ "List " ++ show vec ++ " was moved"
-
+  (TList esTy) <- case tp of
+                      s@(TList _) -> return s
+                      (TRef t) -> throwError $ "Set: Cannot borrow " ++ show vec ++ " as mutable, as it is behind a & reference"
+                      -- (TMutRef t) -> if mut == Imm then throwError $ "Set: Cannot borrow " ++ show vec ++ " as mutable, as it is behind a & reference"
+                      --             else maxUnwrapType t
+                      _ -> throwError $ "Cannot use the insert function for arrays on non-arrays " ++ show vec
   -- how about changing this to lookupVarT (done)? or to peekVarType back
   idxTy <- E.infer i
   when (idxTy /= TInt) $ throwError "Index to insert element in list must be an integer"
@@ -286,8 +298,16 @@ infer s@(SInsert prevE@(EIdx v prevI) i el) = do
     (TList esTy) <- E.infer prevE
     when (eTy /= esTy) $ throwError $ "Push: List's " ++ show v ++ " elements are of type " ++ show esTy ++ ", but element " ++ show el ++ " has type " ++ show eTy
 
+-- error message if not EVar vec
 infer s@(SSetIdx (EVar vec) idxs el) = do
-    (VI (TList esTy) _ live, mut) <- lookupVarT vec
+    (VI tp _ live _ _, mut) <- lookupVarT vec
+    when (not live) $ throwError $ "List " ++ show vec ++ " was moved"
+    (TList esTy) <- case tp of
+                      s@(TList _) -> return s
+                      (TRef t) -> throwError $ "Set: Cannot borrow " ++ show vec ++ " as mutable, as it is behind a & reference"
+                      -- (TMutRef t) -> if mut == Imm then throwError $ "Set: Cannot borrow " ++ show vec ++ " as mutable, as it is behind a & reference"
+                      --             else maxUnwrapType t
+                      _ -> throwError $ "Cannot use the set function for arrays on non-arrays " ++ show vec
     let exps = [e | IndexList e <- idxs]
     idxsTy <- mapM E.infer exps
     when (any (\idxTy -> idxTy /= TInt) idxsTy) $ throwError "Index to insert element in list must be an integer"
