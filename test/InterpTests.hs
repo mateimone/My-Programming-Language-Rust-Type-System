@@ -48,6 +48,102 @@ test = hspec $ do
                "return a"
             ) (VInt 1)
 
+   describe "Interpreter: mutable references and dereference tests" $ do
+      interpTest  ("val mut a = &(Green);" ++ 
+               "val b = &mut a;" ++ 
+               "*b = &(Yellow);" ++
+               "return (a == &(Yellow))"
+            ) (VBool True)
+
+      interpTest  ("val mut a = &mut(Green);" ++ 
+               "val b = &mut a;" ++ 
+               "*b = &mut (Yellow);" ++
+               "return (a == &mut(Yellow))"
+            ) (VBool True)
+
+      interpTest  ("val mut a = &mut(vec![1]);" ++ 
+               "val b = &mut a;" ++ 
+               "val c = (*b)[0];" ++
+               "return (c == 1)"
+            ) (VBool True)
+
+      interpTest  ("val mut a = &(&(vec![1]));" ++ 
+               "val b = &mut (&mut a);" ++ 
+               "val c = b[0];" ++
+               "return (c == 1)"
+            ) (VBool True)
+
+      interpTest  ("val mut a = &mut(vec![1]);" ++ 
+               "val b = &mut a;" ++ 
+               "val c = (*b)[0];" ++
+               "return (c == 1)"
+            ) (VBool True)
+
+      interpTest  ("val mut a = &(vec![Yellow]);" ++
+               "val b = &mut a;" ++ 
+               "fun test(x: &mut &List<Light>) -> unit = { *x = (&(vec![Red])); return void }" ++
+               "test(b);" ++
+               "val c = &(b[0]);" ++
+               "return (c == &(Red)) "
+            ) (VBool True)
+
+      interpTest  ("val mut a = vec![1];" ++ 
+               "val b = &mut a;" ++ 
+               "*b = (vec![2]);" ++
+               "return (a[0])"
+            ) (VInt 2)
+
+      interpTest  ("val mut a = vec![Yellow];" ++ 
+               "val b = &mut a;" ++ 
+               "*b = (vec![Red]);" ++
+               "return (&((*(&b))[0]) == &(Red))"
+            ) (VBool True)
+
+      interpTest  ("fun test(x: &mut (&mut List<&int>)) -> int = { return (*(x[0])) }" ++
+               "return (test(&mut (&mut (vec![&(1)]))) == 1)"
+            ) (VBool True)
+
+      interpTest  ("fun test(x: &mut (&mut List<&int>)) -> int = { return (*((*x)[0])) }" ++
+               "return (test(&mut (&mut (vec![&(1)]))) == 1)"
+            ) (VBool True)
+
+      interpTest  ("val mut a = vec![Yellow];" ++
+               "val b = &mut a;" ++
+               "(*b)[0] = Red;" ++ 
+               "return (&((&b)[0]) == &(Red))"
+            ) (VBool True)
+
+      interpTest  ("val mut a = vec![Yellow];" ++
+               "val b = &mut (&mut a);" ++
+               "(*(*b))[0] = (Red);" ++ 
+               "return (  &(  (*(*(&b)))[0]  )  == &(Red))"
+            ) (VBool True)
+
+   describe "Interpreter: dereference tests" $ do
+      interpTest  ("val a = &(Green);" ++ 
+               "val b = &a;" ++ 
+               "val c = *b;" ++ 
+               "return (c == &(Green)) && (b == &(&(Green)))"
+            ) (VBool True)
+      
+      interpTest  ("val a = Green;" ++ 
+               "val b = &(&a);" ++ 
+               "val c = *b;" ++ 
+               "return (c == &(Green)) && (b == &(&(Green)))"
+            ) (VBool True)
+
+      interpTest  ("val a = Green;" ++ 
+               "val b = &(&a);" ++ 
+               "val c = *b;" ++ 
+               "return (c == *(*(&(&(&(Green))))))"
+            ) (VBool True)
+
+      interpTest  ("val a = Green;" ++ 
+               "val b = &(&(&a));" ++ 
+               "val c = *(*b);" ++ 
+               "return (c == &(Green)) && (b == &(&(&(Green))))"
+            ) (VBool True)
+
    describe "Interpreter: immutable reference tests" $ do
       interpTest  ("val a = Green;" ++ 
             "val b = &a;" ++ 
@@ -105,6 +201,7 @@ test = hspec $ do
                "val nnn = &(&(Green));" ++
                "return (test(&(&(vec![&(1)]))) == &(1))"
             ) (VBool True)
+
 
    describe "Interpreter: list tests" $ do
       interpTest  ("val mut list: List<int> = vec![];" ++

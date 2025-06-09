@@ -6,12 +6,12 @@ module Env
   , MonadState, MonadError, MonadIO, throwError, modify, liftIO
   , Eval, runEval
   , TC,   runTC
-  , withScope, lookupVar, insertVar, assignVar, lookupFun, insertFun
-  , withScopeT, lookupVarT, insertVarT, lookupFunT, insertFunT
-  , insertInStore, getBorrowedValue, maxUnwrapBorrowedValue
+  , withScope, lookupVar, insertVar, assignVar, lookupFun, insertFun, lookupVarMaybe
+  , withScopeT, lookupVarT, insertVarT, changeVarTIB, changeVarTMB, lookupFunT, insertFunT
+  , insertInStore, getBorrowedValue, maxUnwrapBorrowedValue, modifyBorrowedValue
   , insertInStoreT, maxUnwrapType
   , readPrim
-  , freshAddr, insertInHeap, readObject, replaceObject
+  , freshAddr, insertInHeap, readObject, replaceObject, numberOfRefs
   , Slot(..)
   , randomString
   ) where
@@ -22,7 +22,7 @@ import Control.Monad.Except
 import Control.Monad.IO.Class      ( MonadIO(..) )
 
 import Lang.Abs (Ident, Type(..))
-import Value    (Value(..), Closure, TClosure, Mutability, Mutability( Imm,Mut ), Object, Color, Slot(..), Addr(..), VarInfo)
+import Value    (Value(..), Closure, TClosure, Mutability, Mutability( Imm,Mut ), Object, Color, Slot(..), Addr(..), VarInfo (..))
 import Data.Set
 import Data.Int
 import System.Random (StdGen, randomR, mkStdGen)
@@ -84,18 +84,46 @@ maxUnwrapBorrowedValue (VRef (Addr addr)) = do
   store <- gets refStore
   let (Just (id, Prim val, _)) = M.lookup (Addr addr) (head store)
   maxUnwrapBorrowedValue val
+maxUnwrapBorrowedValue (VMutRef (Addr addr)) = do
+  store <- gets refStore
+  let (Just (id, Prim val, _)) = M.lookup (Addr addr) (head store)
+  maxUnwrapBorrowedValue val
 maxUnwrapBorrowedValue other = return other
+
+modifyBorrowedValue :: Addr -> Slot Value -> Eval ()
+modifyBorrowedValue (Addr addr) newVal = do
+  store <- gets refStore
+  let (Just (id, Prim val, mut)) = M.lookup (Addr addr) (head store)
+  case mut of 
+    Imm -> throwError $ "MODIFY BORROWED VALUE, THIS SHOULD NOT HAPPEN BECAUSE TYPECHECKER SHOULD FORBID MODIFYING IMMUTABLE AN REFERENCES' VALUE" ++
+                        "Cannot modify value under immutable reference"
+    Mut -> do
+              modify (\env -> env { refStore = ((M.insert) (Addr addr) (id, newVal, mut) (head store)):(tail store) } )
+              scs <- gets scopes
+              foundId <- lookupVarMaybe id
+              case foundId of
+                (Just _) -> assignVar id newVal
+                (Nothing) -> return ()
 
 maxUnwrapType :: Type -> TC Type
 maxUnwrapType (TRef t) = maxUnwrapType t
+maxUnwrapType (TMutRef t) = maxUnwrapType t
 maxUnwrapType t = return t 
 
+numberOfRefs :: Type -> (Type, Int)
+numberOfRefs (TRef t) = let tup = numberOfRefs t in (fst tup, snd tup + 1)
+numberOfRefs (TMutRef t) = let tup = numberOfRefs t in (fst tup, snd tup + 1)
+numberOfRefs t = (t, 0)
+
 insertInStoreT :: (Ident, VarInfo, Mutability) -> TC Addr
-insertInStoreT tup = do
+insertInStoreT tup@(name, vi, mut) = do
   en <- get
   let top = head $ refStore en
   let rest = tail $ refStore en
   let a@(Addr addr) = nextA en
+  let (VI ty cf live ib mb) = vi
+  let newVI = if mut == Mut then (VI ty cf live ib (mb+1)) 
+              else (VI ty cf live (ib+1) mb)
 
   modify (\e -> e { 
     refStore = (M.insert a tup top):rest ,
@@ -192,6 +220,18 @@ lookupVar x = do
           Nothing -> iter scs
   iter scps
 
+lookupVarMaybe :: Ident -> Eval (Maybe (Slot Value, Mutability))
+lookupVarMaybe x = do
+  env <- get
+  let scps = scopes env
+      iter [] = return Nothing
+      iter (s:scs) = 
+        case M.lookup x s of
+          -- Just Moved -> throwError $ "Variable " ++ show x ++ " has had its value moved."
+          Just vm -> return (Just vm)
+          Nothing -> iter scs
+  iter scps
+
 insertVar :: Ident -> (Slot Value, Mutability) -> Eval ()
 insertVar x tup = modify (\env ->
   let scope  = topScope env
@@ -206,7 +246,6 @@ readPrim x = do
     Moved  -> throwError $ "Variable " ++ show x ++ " was moved"
     -- _      -> err "is not a primitive"
   
--- this could be passed to the typechecker instead
 assignVar :: Ident -> Slot Value -> Eval ()
 assignVar x slotVal = do
   fs <- gets scopes
@@ -215,8 +254,12 @@ assignVar x slotVal = do
         case M.lookup x sc of
           Just(_, Imm) -> throwError $ "variable " ++ show x ++ " is immutable"
           Just(_, Mut) -> do
+            -- liftIO $ print "we are here"
             let newScope = modifyVar x (slotVal, Mut) pref sc scs
+            -- liftIO $ print $ "newScope" ++ show newScope
             modify (\env -> env { scopes = newScope })
+            -- scs <- gets scopes
+            -- liftIO $ print $ "scope" ++ show scs
           Nothing -> iter (pref ++ [sc]) scs
   iter [] fs
 
@@ -234,6 +277,62 @@ modifyVar n tup prefix curr rest =
       case rest of
         [] -> error $ "variable " ++ show n ++ " is not bound"
         next:rest' -> modifyVar n tup (prefix ++ [curr]) next rest'
+
+-- assignVarT :: Ident -> VarInfo -> TC ()
+-- assignVarT x vi = do
+--   fs <- gets scopes
+--   let iter _ [] = throwError $ "variable " ++ show x ++ " is not bound"
+--       iter pref (sc:scs) = 
+--         case M.lookup x sc of
+--           Just(_, Imm) -> throwError $ "variable " ++ show x ++ " is immutable"
+--           Just(_, Mut) -> do
+--             -- liftIO $ print "we are here"
+--             let newScope = modifyVarT x (vi, Mut) pref sc scs
+--             -- liftIO $ print $ "newScope" ++ show newScope
+--             modify (\env -> env { scopes = newScope })
+--             -- scs <- gets scopes
+--             -- liftIO $ print $ "scope" ++ show scs
+--           Nothing -> iter (pref ++ [sc]) scs
+--   iter [] fs
+
+changeVarTIB :: Ident -> Int -> TC ()
+changeVarTIB x newImm = do
+  fs <- gets scopes
+  let iter _ [] = throwError $ "variable " ++ show x ++ " is not bound"
+      iter pref (sc:scs) = 
+        case M.lookup x sc of
+          Just(oldVI, m) -> do
+            let newScope = modifyVarT x (oldVI { immutableBorrows=newImm }, m) pref sc scs
+            modify (\env -> env { scopes = newScope })
+          Nothing -> iter (pref ++ [sc]) scs
+  iter [] fs
+
+changeVarTMB :: Ident -> Int -> TC ()
+changeVarTMB x newMut = do
+  fs <- gets scopes
+  let iter _ [] = throwError $ "variable " ++ show x ++ " is not bound"
+      iter pref (sc:scs) = 
+        case M.lookup x sc of
+          Just(oldVI, m) -> do
+            let newScope = modifyVarT x (oldVI { mutableBorrows=newMut }, m) pref sc scs
+            modify (\env -> env { scopes = newScope })
+          Nothing -> iter (pref ++ [sc]) scs
+  iter [] fs
+
+modifyVarT :: 
+  Ident -> 
+  (VarInfo, Mutability) -> 
+  [M.Map Ident (VarInfo, Mutability)] -> 
+  M.Map Ident (VarInfo, Mutability) -> 
+  [M.Map Ident (VarInfo, Mutability)] -> 
+  [M.Map Ident (VarInfo, Mutability)]
+modifyVarT n tup prefix curr rest = 
+  case M.lookup n curr of
+    Just _  -> prefix ++ (M.insert n tup curr : rest)
+    Nothing ->
+      case rest of
+        [] -> error $ "variable " ++ show n ++ " is not bound"
+        next:rest' -> modifyVarT n tup (prefix ++ [curr]) next rest'
 
 insertVarT :: Ident -> (VarInfo, Mutability) -> TC ()
 insertVarT x tup = modify (\env -> 

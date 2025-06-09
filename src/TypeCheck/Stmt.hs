@@ -7,7 +7,8 @@ import Env hiding (modify)
 import Value ( TClosure( TFun )
              , Mutability( Imm, Mut )
              , VarInfo(..)
-             , isCopy )
+             , isCopy
+             , fitsInto )
 
 import Lang.Abs ( Stmt(..)
                 , Type(..)
@@ -33,7 +34,7 @@ voidNotAllowed t e st = when (t == TUnit) $ throwError ("Type cannot be unit in 
 -- moveNotAllowed _ _ _ = return ()
 
 checkMoveNotAllowed :: Type -> Exp -> TC ()
-checkMoveNotAllowed t e@(EIdx vec i) 
+checkMoveNotAllowed t e@(EIdx vec i)
   | isCopy t = return ()
   | otherwise= throwError ("Cannot move element from array in expression " ++ show e)
 checkMoveNotAllowed _ _ = return ()
@@ -78,20 +79,20 @@ infer s@(SLetAnn x ty e) = do
                     let expectedUnwrapped = fst tup2
                     let numberOfUnwrapsExpected = snd tup2
                     if (numberOfUnwrapsReal == numberOfUnwrapsExpected) then
-                      case realUnwrapped of 
+                      case realUnwrapped of
                         TUnknown -> wrapTypeBack expectedUnwrapped numberOfUnwrapsReal
                         other -> wrapTypeBack other numberOfUnwrapsReal
-                    else 
+                    else
                       throwError $ "Type mismatch for " ++ show x ++
                                   ": annotation says " ++ show ty ++
                                   " but expression has type " ++ show t
 
                   (a, e) -> return a
-                    
+
   checkMoveNotAllowed realUnwrappedType e
   let c = isCopy realUnwrappedType
   voidNotAllowed realUnwrappedType e s
-  if realUnwrappedType == ty
+  if (fitsInto realUnwrappedType ty)
      then insertVarT x (createVi realUnwrappedType c True 0 0, Imm) -- >> do {e <- get; (liftIO $ print (scopes e))}
      else throwError $
        "Type mismatch for " ++ show x ++
@@ -108,7 +109,7 @@ infer s@(SLetM x e) = do
         tup <- unwrapListTypeUntilEnd (TList t) 0
         when (fst tup == TUnknown) $ throwError "Empty vector literal needs type annotation"
       _ -> return ()
-    
+
     checkMoveNotAllowed t e
     let c = isCopy t
     voidNotAllowed t e s
@@ -132,10 +133,10 @@ infer s@(SLetMAnn x ty e) = do
                     let expectedUnwrapped = fst tup2
                     let numberOfUnwrapsExpected = snd tup2
                     if (numberOfUnwrapsReal == numberOfUnwrapsExpected) then
-                      case realUnwrapped of 
+                      case realUnwrapped of
                         TUnknown -> wrapTypeBack expectedUnwrapped numberOfUnwrapsReal
                         other -> wrapTypeBack other numberOfUnwrapsReal
-                    else 
+                    else
                       throwError $ "Type mismatch for " ++ show x ++
                                   ": annotation says " ++ show ty ++
                                   " but expression has type " ++ show t
@@ -145,7 +146,7 @@ infer s@(SLetMAnn x ty e) = do
   checkMoveNotAllowed realUnwrappedType e
   let c = isCopy realUnwrappedType
   voidNotAllowed realUnwrappedType e s
-  if realUnwrappedType == ty
+  if (fitsInto realUnwrappedType ty)
      then insertVarT x (createVi realUnwrappedType c True 0 0, Mut)
      else throwError $
        "Type mismatch for " ++ show x ++
@@ -202,10 +203,10 @@ infer s@(SAss x e) = do
                     let expectedUnwrapped = fst tup2
                     let numberOfUnwrapsExpected = snd tup2
                     if (numberOfUnwrapsReal == numberOfUnwrapsExpected) then
-                      case realUnwrapped of 
+                      case realUnwrapped of
                         TUnknown -> wrapTypeBack expectedUnwrapped numberOfUnwrapsReal
                         other -> wrapTypeBack other numberOfUnwrapsReal
-                    else 
+                    else
                       throwError $ "Type mismatch for " ++ show x ++
                                   ": annotation says " ++ show (ty vi) ++
                                   " but expression has type " ++ show ety
@@ -213,7 +214,7 @@ infer s@(SAss x e) = do
                   (a, e) -> return a
       voidNotAllowed realUnwrappedType e s
       checkMoveNotAllowed realUnwrappedType e
-      if (ty vi) == realUnwrappedType then do
+      if (fitsInto realUnwrappedType (ty vi)) then do
         let c = isCopy realUnwrappedType
         let vi' = vi { live = True }
         modify (\env -> env { scopes= M.insert x (vi', Mut) (head $ scopes env) : (tail $ scopes env)} )
@@ -255,7 +256,7 @@ infer s@(SPush (EVar vec) el) = do
     when (mut == Imm) $ throwError $ "List " ++ show vec ++ " is immutable"
     eTy <- E.infer el
     checkMoveNotAllowed eTy el
-    if eTy == esTy then return ()
+    if fitsInto eTy esTy then return ()
     else throwError $ "Push: List's " ++ show vec ++ " elements are of type " ++ show esTy ++ ", but element " ++ show el ++ " has type " ++ show eTy
 
 -- infer s@(SPush v@(EVec es) el) = do
@@ -268,7 +269,7 @@ infer s@(SPush prevE@(EIdx v prevI) el) = do
     eTy <- E.infer el
     checkMoveNotAllowed eTy el
     (TList esTy) <- E.infer prevE
-    when (eTy /= esTy) $ throwError $ "Push: List's " ++ show v ++ " elements are of type " ++ show esTy ++ ", but element " ++ show el ++ " has type " ++ show eTy
+    when (not $ fitsInto eTy esTy) $ throwError $ "Push: List's " ++ show v ++ " elements are of type " ++ show esTy ++ ", but element " ++ show el ++ " has type " ++ show eTy
 
 
 infer s@(SInsert (EVar vec) i el) = do
@@ -285,9 +286,9 @@ infer s@(SInsert (EVar vec) i el) = do
   when (idxTy /= TInt) $ throwError "Index to insert element in list must be an integer"
 
   when (mut == Imm) $ throwError $ "List " ++ show vec ++ " is immutable"
-  eTy <- E.infer el
+  eTy <- E.infer el 
   checkMoveNotAllowed eTy el
-  if eTy == esTy then return ()
+  if fitsInto eTy esTy then return ()
   else throwError $ "Insert: List's " ++ show vec ++ " elements are of type " ++ show esTy ++ ", but element " ++ show el ++ " has type " ++ show eTy
 
 infer s@(SInsert prevE@(EIdx v prevI) i el) = do
@@ -296,7 +297,7 @@ infer s@(SInsert prevE@(EIdx v prevI) i el) = do
     eTy <- E.infer el
     checkMoveNotAllowed eTy el
     (TList esTy) <- E.infer prevE
-    when (eTy /= esTy) $ throwError $ "Push: List's " ++ show v ++ " elements are of type " ++ show esTy ++ ", but element " ++ show el ++ " has type " ++ show eTy
+    when (not $ fitsInto eTy esTy) $ throwError $ "Push: List's " ++ show v ++ " elements are of type " ++ show esTy ++ ", but element " ++ show el ++ " has type " ++ show eTy
 
 -- error message if not EVar vec
 infer s@(SSetIdx (EVar vec) idxs el) = do
@@ -307,10 +308,11 @@ infer s@(SSetIdx (EVar vec) idxs el) = do
                       (TRef t) -> throwError $ "Set: Cannot borrow " ++ show vec ++ " as mutable, as it is behind a & reference"
                       -- (TMutRef t) -> if mut == Imm then throwError $ "Set: Cannot borrow " ++ show vec ++ " as mutable, as it is behind a & reference"
                       --             else maxUnwrapType t
+                      (TMutRef t) -> maxUnwrapType t
                       _ -> throwError $ "Cannot use the set function for arrays on non-arrays " ++ show vec
     let exps = [e | IndexList e <- idxs]
     idxsTy <- mapM E.infer exps
-    when (any (\idxTy -> idxTy /= TInt) idxsTy) $ throwError "Index to insert element in list must be an integer"
+    when (any (\idxTy -> idxTy /= TInt) idxsTy) $ throwError "Index to insert element at must be an integer"
     when (mut == Imm) $ throwError $ "List " ++ show vec ++ " is immutable"
     eTy <- E.infer el
     realUnwrappedType <- case (eTy, esTy) of
@@ -323,22 +325,62 @@ infer s@(SSetIdx (EVar vec) idxs el) = do
                     let expectedUnwrapped = fst tup2
                     let numberOfUnwrapsExpected = snd tup2
                     if (numberOfUnwrapsReal == numberOfUnwrapsExpected) then
-                      case realUnwrapped of 
+                      case realUnwrapped of
                         TUnknown -> wrapTypeBack expectedUnwrapped numberOfUnwrapsReal
                         other -> wrapTypeBack other numberOfUnwrapsReal
-                    else 
-                      throwError $ 
+                    else
+                      throwError $
                       "Set: List's " ++ show vec ++ " elements are of type " ++ show esTy ++ ", but element " ++ show el ++ " has type " ++ show eTy
 
                   (a, e) -> return a
     checkMoveNotAllowed realUnwrappedType el
     unwrappedType <- unwrapListType (TList esTy) (length idxs)
-    when (realUnwrappedType /= unwrappedType) $ 
+    when (not $ fitsInto realUnwrappedType unwrappedType) $
       throwError $ "Set: List's " ++ show vec ++ " elements are of type " ++ show esTy ++ ", but element " ++ show el ++ " has type " ++ show eTy
+
+infer s@(SSetIdx d@(EDeref ref) idxs el) = do
+  refTy <- E.infer ref
+  (innerListTy, esTy) <- case refTy of
+      TMutRef t@(TList es) -> return (t, es)
+      TRef _ -> throwError $ "Set: cannot modify through immutable reference " ++ show ref
+      _ -> throwError $ "Set: " ++ show ref ++ " is not a reference to a list"
+  
+  let idxEs = [ e | IndexList e <- idxs ]
+  mapM_ (\idx -> do ixTy <- E.infer idx
+                    when (ixTy /= TInt) $ throwError "Set: every index must have type int")
+        idxEs
+
+  eTy <- E.infer el
+  realUnwrappedType <- case (eTy, esTy) of
+        (TList rt, TList ety) -> do
+            (real, nReal) <- unwrapListTypeUntilEnd (TList rt) 0
+            (expd, nExpd) <- unwrapListTypeUntilEnd (TList ety) 0
+            if nReal == nExpd
+                 then wrapTypeBack (if real == TUnknown then expd else real) nReal
+                 else throwError $
+                       "Set: List's " ++ show ref ++ " elements are of type " ++ show esTy ++ ", but element " ++ show el ++ " has type " ++ show eTy
+        _ -> return eTy
+  
+  checkMoveNotAllowed realUnwrappedType el
+  
+  wantedTy <- unwrapListType innerListTy (length idxs)
+  when (not $ fitsInto realUnwrappedType wantedTy) $ 
+    throwError $ "Set: element type mismatch. List has " ++ show wantedTy ++ ", expression has " ++ show realUnwrappedType
     
+
+-- infer s@(SSetIdx e@(EDeref vec) )
+
 infer (SExp e) = do
     E.infer e
     return ()
+
+infer (SAssDeref e v) = do
+  eT <- E.infer e
+  newValT <- E.infer v
+  case eT of
+    (TRef _) -> throwError "Cannot mutate value under immutable reference"
+    (TMutRef rT) -> when (rT /= newValT) $ throwError $ "Value under reference has type " ++ show rT ++ ", but expression " ++ show v ++ "has type " ++ show newValT
+    _ -> throwError $ show e ++ " is not a mutable reference (&mut)"
 
 unwrapListTypeUntilEnd :: Type -> Int -> TC (Type, Int)
 unwrapListTypeUntilEnd (TList listT) n = unwrapListTypeUntilEnd listT (n+1)

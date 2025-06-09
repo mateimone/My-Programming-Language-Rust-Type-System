@@ -28,6 +28,7 @@ TUnit.    Type1 ::= "unit";
 TLight.   Type1 ::= "Light";
 TList.    Type1 ::= "List" "<" Type ">";
 TRef.     Type1 ::= "&" Type;
+TMutRef.  Type1 ::= "&mut" Type;
 TUnknown. Type1 ::= "?" ;
 
 _. Type2 ::= "(" Type ")";
@@ -45,11 +46,13 @@ SIf.      Stmt ::= "if" "(" Exp ")" "{" [Stmt] "}" ;
 SIfElse.  Stmt ::= "if" "(" Exp ")" "{" [Stmt] "}" "else" "{" [Stmt] "}" ;
 SWhile.   Stmt ::= "while" "(" Exp ")" "{" [Stmt] "}" ;
 
+
 SPush.   Stmt ::= Exp8 "." "push"   "(" Exp7 ")"      ";" ;
 SInsert. Stmt ::= Exp8 "." "insert" "(" Exp7 "," Exp7 ")" ";" ;
 SSetIdx. Stmt ::= Exp8 [IndexList] "=" Exp7 ";" ;
 -- SReturn. Stmt ::= "return " Exp8 ";" ;
 SExp. Stmt ::= Exp ";" ;
+SAssDeref. Stmt ::= "*" Exp8 "=" Exp8 ";" ;
 
 -- EXPRESSIONS --------------------------------------------------------
 
@@ -103,6 +106,10 @@ ERemove. Exp8 ::= Exp8 "." "remove" "(" Exp7 ")" ;
 -- References (borrows)
 ERef.    Exp8 ::= "&" Exp8 ;
 EMutRef. Exp8 ::= "&mut" Exp8 ;
+EDeref.  Exp8 ::= "*" Exp8;
+
+-- Concurrency
+-- EPar. Exp8 ::= 
 
 -- This part sets up the order of operation
 _. Exp8 ::= "(" Exp ")" ;

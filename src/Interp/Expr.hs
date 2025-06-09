@@ -90,6 +90,18 @@ interp (EEq e1 e2) = do
             vr1 <- maxUnwrapBorrowedValue (VRef a)
             vr2 <- maxUnwrapBorrowedValue (VRef b)
             return $ VBool (vr1 == vr2)
+        (VMutRef a, VMutRef b) -> do
+            vr1 <- maxUnwrapBorrowedValue (VMutRef a)
+            vr2 <- maxUnwrapBorrowedValue (VMutRef b)
+            return $ VBool (vr1 == vr2)
+        (VMutRef a, VRef b) -> do
+            vr1 <- maxUnwrapBorrowedValue (VMutRef a)
+            vr2 <- maxUnwrapBorrowedValue (VRef b)
+            return $ VBool (vr1 == vr2)
+        (VRef a, VMutRef b) -> do
+            vr1 <- maxUnwrapBorrowedValue (VRef a)
+            vr2 <- maxUnwrapBorrowedValue (VMutRef b)
+            return $ VBool (vr1 == vr2)
         _                    -> throwError "Cannot compare different types"
 interp (ELt e1 e2) = do
     v1 <- Interp.Expr.interp e1
@@ -99,6 +111,10 @@ interp (ELt e1 e2) = do
         (VRef a, VRef b) -> do
             (VInt v1) <- maxUnwrapBorrowedValue (VRef a)
             (VInt v2) <- maxUnwrapBorrowedValue (VRef b)
+            return $ VBool (v1 < v2)
+        (VMutRef a, VMutRef b) -> do
+            (VInt v1) <- maxUnwrapBorrowedValue (VMutRef a)
+            (VInt v2) <- maxUnwrapBorrowedValue (VMutRef b)
             return $ VBool (v1 < v2)
         _                  -> throwError "Cannot compare different types"
 interp (EGt e1 e2) = do
@@ -110,6 +126,10 @@ interp (EGt e1 e2) = do
             (VInt v1) <- maxUnwrapBorrowedValue (VRef a)
             (VInt v2) <- maxUnwrapBorrowedValue (VRef b)
             return $ VBool (v1 > v2)
+        (VMutRef a, VMutRef b) -> do
+            (VInt v1) <- maxUnwrapBorrowedValue (VMutRef a)
+            (VInt v2) <- maxUnwrapBorrowedValue (VMutRef b)
+            return $ VBool (v1 > v2)
         _                  -> throwError "Cannot compare different types"
 interp (ELeq e1 e2) = do
     v1 <- Interp.Expr.interp e1
@@ -120,6 +140,10 @@ interp (ELeq e1 e2) = do
             (VInt v1) <- maxUnwrapBorrowedValue (VRef a)
             (VInt v2) <- maxUnwrapBorrowedValue (VRef b)
             return $ VBool (v1 <= v2)
+        (VMutRef a, VMutRef b) -> do
+            (VInt v1) <- maxUnwrapBorrowedValue (VMutRef a)
+            (VInt v2) <- maxUnwrapBorrowedValue (VMutRef b)
+            return $ VBool (v1 <= v2)
         _                  -> throwError "Cannot compare different types"
 interp (EGeq e1 e2) = do
     v1 <- Interp.Expr.interp e1
@@ -129,6 +153,10 @@ interp (EGeq e1 e2) = do
         (VRef a, VRef b) -> do
             (VInt v1) <- maxUnwrapBorrowedValue (VRef a)
             (VInt v2) <- maxUnwrapBorrowedValue (VRef b)
+            return $ VBool (v1 >= v2)
+        (VMutRef a, VMutRef b) -> do
+            (VInt v1) <- maxUnwrapBorrowedValue (VMutRef a)
+            (VInt v2) <- maxUnwrapBorrowedValue (VMutRef b)
             return $ VBool (v1 >= v2)
         _                  -> throwError "Cannot compare different types"
 
@@ -147,21 +175,21 @@ interp (EGeq e1 e2) = do
 interp (EVar x) = fst <$> readPrim x
 
 -- Functions
-interp (EApp f args) = do
-    (Fun paramInfo stmts retE, _) <- lookupFun f
+-- interp (EApp f args) = do
+--     (Fun paramInfo stmts retE, _) <- lookupFun f
 
-    when (length paramInfo /= length args) $
-       throwError $ "function " ++ show f ++ " expects " ++ show (length paramInfo) ++ " arguments"
+--     when (length paramInfo /= length args) $
+--        throwError $ "function " ++ show f ++ " expects " ++ show (length paramInfo) ++ " arguments"
 
-    argvs <- mapM Interp.Expr.interp args
-    let funScope = M.fromList [ (name,(Prim val,mut)) | ((name,mut),val) <- zip paramInfo argvs]
-    outerEnv <- get
-    put outerEnv { scopes = [funScope] }
-    result <- do
-              interpAndPass stmts
-              Interp.Expr.interp retE
-    put outerEnv
-    return result
+--     argvs <- mapM Interp.Expr.interp args
+--     let funScope = M.fromList [ (name,(Prim val,mut)) | ((name,mut),val) <- zip paramInfo argvs]
+--     outerEnv <- get
+--     put outerEnv { scopes = [funScope] }
+--     result <- do
+--               interpAndPass stmts
+--               Interp.Expr.interp retE
+--     put outerEnv
+--     return result
 
 interp ERed    = return (VLight Red)
 interp EYellow = return (VLight Yellow)
@@ -175,15 +203,13 @@ interp (EVec es) = do
     liftIO $ print (show h)
     return (VList addr)
 
--- NOTE FOR FUTURE
--- RETURN A REFERENCE TO THE ELEMENT (WHETHER IT'S COPYABLE OR NOT)
--- UNWRAP FOR PRIMITIVES
 interp (EIdx vec i) = do
     o <- Interp.Expr.interp vec
     -- liftIO $ print (show o)
     (VList addr) <- case o of
                         (VList a) -> return (VList a)
                         r@(VRef a) -> maxUnwrapBorrowedValue r
+                        r@(VMutRef a) -> maxUnwrapBorrowedValue r
     list@(OList elems) <- readObject addr
     (VInt idx) <- Interp.Expr.interp i
     -- idx <- case eI of
@@ -212,6 +238,30 @@ interp (ERef exp) = do
             let (tempVarString, g) = randomString (mkStdGen 42)
             a@(Addr refAddr) <- insertInStore (Ident tempVarString, Prim e, Imm) 
             return (VRef a)
+
+interp (EMutRef exp) = do
+    e <- Interp.Expr.interp exp
+
+    case exp of
+        (EVar var) -> do
+            a@(Addr refAddr) <- insertInStore (var, Prim e, Mut)
+            return (VMutRef a)
+        otherVal -> do
+            let (tempVarString, g) = randomString (mkStdGen 42)
+            a@(Addr refAddr) <- insertInStore (Ident tempVarString, Prim e, Mut)
+            return (VMutRef a)
+
+interp (EDeref exp) = do
+    e <- Interp.Expr.interp exp
+    case e of
+        (VRef addr) -> do
+            -- (VRef addr) <- Interp.Expr.interp a
+            (Prim val) <- getBorrowedValue addr
+            return val
+        (VMutRef addr) -> do
+            (Prim val) <- getBorrowedValue addr
+            return val
+        _ -> throwError "Can only dereference a reference"
 
 -- What do about Refs ????
 -- interp (EPush vec el) = do
@@ -246,6 +296,48 @@ interp (ERemove vec i) = do
         (Prim val) -> return val
         _ -> throwError $ "No idea what should be here.\n" ++ show vec ++ "\n" ++ show idx ++ "\n" ++ show list
 
+
+interp (EApp f args) = do
+    (Fun paramInfo stmts retE, _) <- lookupFun f
+
+    when (length paramInfo /= length args) $
+       throwError $ "function " ++ show f ++ " expects " ++ show (length paramInfo) ++ " arguments"
+
+    argvs <- mapM Interp.Expr.interp args
+    let funScope = M.fromList [ (name,(Prim val,mut)) | ((name,mut),val) <- zip paramInfo argvs]
+    outerEnv <- get
+    put outerEnv { scopes = [funScope] }
+    result <- do
+              interpAndPass stmts
+              Interp.Expr.interp retE
+    store <- gets refStore
+    h <- gets heap
+    nextadr <- gets nextA
+    put outerEnv { refStore = store, heap = h, nextA = nextadr }
+    
+    modifyEnvWithStoreAfterFN store
+
+    return result
+
+modifyEnvWithStoreAfterFN :: [M.Map Addr (Ident, Slot Value, Mutability)] -> Eval ()
+modifyEnvWithStoreAfterFN store = do
+    mapM_ modifyEnvWithAStore store
+    
+modifyEnvWithAStore :: M.Map Addr (Ident, Slot Value, Mutability) -> Eval ()
+modifyEnvWithAStore store = do
+    mapM_ update (M.toList store)
+
+update :: (Addr, (Ident, Slot Value, Mutability)) -> Eval ()
+update (addr, tup@(_, _, Imm)) = return ()
+update (addr, tup@(name, newVal, Mut)) = do
+    found <- lookupVarMaybe name
+    s <- gets refStore
+    scs <- gets scopes
+    case found of
+        Nothing -> return ()
+        Just (oldVal, Mut) 
+            | oldVal == newVal -> return ()
+            | otherwise -> assignVar name newVal
 
 insertAt :: a -> Integer -> [a] -> [a]
 insertAt newElement 0 as = newElement:as

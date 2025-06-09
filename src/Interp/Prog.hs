@@ -11,13 +11,19 @@ import Lang.Abs ( Program( Program )
 
 import qualified Interp.Stmt as S
 import qualified Interp.Expr as E
+import Control.Monad.State (gets)
 
 -- PROGRAM INTERPRETER ---------------------------------------------------------------
 
 interp :: Program -> Eval Value
 interp (Program stmts exp) = do
     prepare stmts
-    E.interp exp
+    e <- E.interp exp
+    s <- gets scopes
+    rs <- gets refStore
+    liftIO $ print s
+    liftIO $ print rs
+    return e
   where
     prepare :: [Stmt] -> Eval ()
     prepare []           = return ()

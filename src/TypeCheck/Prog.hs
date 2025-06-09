@@ -14,6 +14,7 @@ import Lang.Abs ( Program( Program )
 import qualified TypeCheck.Stmt as S
 import qualified TypeCheck.Expr as E
 import qualified Lang.ErrM as S
+import Control.Monad.State (gets)
 
 -- PROGRAM TYPE CHECKER --------------------------------------------------------------
 
@@ -28,6 +29,8 @@ infer (Program stmts exp) = do
     prepare stmts
     eTy <- E.infer exp
     checkMoveNotAllowed eTy exp
+    s <- gets scopes
+    liftIO $ print s
     return eTy
   where
     prepare :: [Stmt] -> TC ()

@@ -8,7 +8,7 @@ import Env
 import Value ( Value (..)
              , Closure( Fun )
              , Mutability( Imm, Mut )
-             , Object(..), Addr
+             , Object(..), Addr (..)
             )
 
 import qualified Interp.Expr as E
@@ -102,7 +102,7 @@ interp (SSetIdx vec idxs e) = do
     v <- E.interp vec
     (VList addr) <- case v of
                       s@(VList _) -> return s
-                      t@(VRef a) -> maxUnwrapBorrowedValue t
+                      t@(VMutRef a) -> maxUnwrapBorrowedValue t
     h <- gets heap
     let (Just (OList list)) = M.lookup addr h
     liftIO $ print addr
@@ -111,6 +111,12 @@ interp (SSetIdx vec idxs e) = do
     let exps = [e | IndexList e <- idxs]
     itXs <- mapM E.interp exps
     unwrapList list itXs newSlot addr
+
+interp (SAssDeref exp v) = do 
+    (VMutRef a) <- E.interp exp
+    newVal <- E.interp v
+    -- v <- getBorrowedValue a
+    modifyBorrowedValue a (Prim newVal) 
 
 unwrapList :: [Slot Value] -> [Value] -> Slot Value -> Addr -> Eval ()
 unwrapList ls [(VInt i)] elemToSet currentAddr = do

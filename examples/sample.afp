@@ -1,14 +1,10 @@
-val a = &(&(&(&(vec![1]))));
-
-val mut c = Green;
-val mut d = &c;
-val t = True;
-
-if (t == True) {
-    ass d = &(Red);
-    val mut d = &(Yellow);
-    ass d = &(Yellow);
+val mut z = vec![Green];
+val mut a = vec![Green];
+val mut b = &mut z;
+if (1 == 1) {
+    
 }
+ass b = &mut a;
+val c = &mut a;
 
-
-return (d == &(Yellow))
+return 0

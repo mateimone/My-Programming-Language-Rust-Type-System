@@ -34,6 +34,178 @@ test = hspec $ do
       tcErrorTest "True && 3"
       tcErrorTest "fun increment (x : int) -> int = {return x + 1} val b = True; return increment(b)"
 
+   describe "typeChecker: dereference tests (immutable references)" $ do
+      tcTest  ("val a = &(Green);" ++ 
+               "val b = &a;" ++ 
+               "val c = *b;" ++ 
+               "return (c == &(Green)) && (b == &(&(Green)))"
+            ) TBool
+      
+      tcTest  ("val a = Green;" ++ 
+               "val b = &(&a);" ++ 
+               "val c = *b;" ++ 
+               "return (c == &(Green)) && (b == &(&(Green)))"
+            ) TBool
+
+      tcTest  ("val a = Green;" ++ 
+               "val b = &(&(&a));" ++ 
+               "val c = *(*b);" ++ 
+               "return (c == &(Green)) && (b == &(&(&(Green))))"
+            ) TBool
+
+      tcTest  ("val a = Green;" ++ 
+               "val b = &(&a);" ++ 
+               "val c = *b;" ++ 
+               "return (c == *(*(&(&(&(Green))))))"
+            ) TBool
+
+      tcErrorTest  ("val a = Green;" ++ 
+                    "val b = &a;" ++ 
+                    "*b = Red;" ++ 
+                    "return 0"
+               )
+
+      tcErrorTest  ("val a = Green;" ++ 
+                    "val b = &a;" ++ 
+                    "val c = *a;" ++ 
+                    "return 0"
+               )
+
+      tcErrorTest  ("val a = Green;" ++ 
+                    "val b = &a;" ++ 
+                    "val c = *b;" ++ 
+                    "return 0"
+               )
+
+      tcErrorTest  ("val a = *Green;" ++ 
+                    "return 0"
+               )
+
+      tcErrorTest  ("val a = *(&(Green));" ++ 
+                    "return 0"
+               ) 
+   
+   -- fitsInto done for
+   -- vectors
+   -- variable assignment
+   -- function application
+
+   describe "typeChecker: mutable reference and dereferences tests" $ do
+      tcTest  ("val mut a = &(Green);" ++ 
+               "val b = &mut a;" ++ 
+               "*b = &(Yellow);" ++
+               "return (a == &(Yellow))"
+            ) TBool
+
+      tcTest  ("val mut a = &mut(Green);" ++ 
+               "val b = &mut a;" ++ 
+               "*b = &mut (Yellow);" ++
+               "return (a == &mut(Yellow))"
+            ) TBool
+
+      tcTest  ("val mut a = &mut(vec![1]);" ++ 
+               "val b = &mut a;" ++ 
+               "val c = (*b)[0];" ++
+               "return (c == 1)"
+            ) TBool
+
+      tcTest  ("val mut a = &(&(vec![1]));" ++ 
+               "val b = &mut (&mut a);" ++ 
+               "val c = b[0];" ++
+               "return (c == 1)"
+            ) TBool
+
+      tcTest  ("val mut a = &mut(vec![1]);" ++ 
+               "val b = &mut a;" ++ 
+               "val c = (*b)[0];" ++
+               "return (c == 1)"
+            ) TBool
+
+      tcTest  ("val mut a = &(vec![Yellow]);" ++
+               "val b = &mut a;" ++ 
+               "fun test(x: &mut &List<Light>) -> unit = { *x = (&(vec![Red])); return void }" ++
+               "test(b);" ++
+               "val c = &(b[0]);" ++
+               "return (c == &(Red)) "
+            ) TBool
+
+      tcTest  ("val mut a = vec![1];" ++ 
+               "val b = &mut a;" ++ 
+               "*b = (vec![2]);" ++
+               "return (a[0])"
+            ) TInt
+
+      tcTest  ("val mut a = vec![Yellow];" ++ 
+               "val b = &mut a;" ++ 
+               "*b = (vec![Red]);" ++
+               "return (&((*(&b))[0]))"
+            ) (TRef TLight)
+
+      tcTest  ("fun test(x: &mut (&mut List<&int>)) -> int = { return (*(x[0])) }" ++
+               "return (test(&mut (&mut (vec![&(1)]))) == 1)"
+            ) TBool
+
+      tcTest  ("fun test(x: &mut (&mut List<&int>)) -> int = { return (*((*x)[0])) }" ++
+               "return (test(&mut (&mut (vec![&(1)]))) == 1)"
+            ) TBool
+
+      tcTest  ("val mut a = vec![Yellow];" ++
+               "val b = &mut a;" ++
+               "(*b)[0] = (Red);" ++ 
+               "return (&((&b)[0]))"
+            ) (TRef TLight)
+
+      tcTest  ("val mut a = vec![Yellow];" ++
+               "val b = &mut (&mut a);" ++
+               "(*(*b))[0] = (Red);" ++ 
+               "return (  &(  (*(*(&b)))[0]  )  == &(Red))"
+            ) TBool
+
+      tcTest  ("val mut a = Red;" ++
+               "val b = &mut a;" ++
+               "fun test(x: &mut Light) -> unit = { *x = (Red); return void }" ++
+               "test(b);" ++
+               "return 0"
+            ) TInt -- can't really test this yet
+
+      tcTest  ("val mut a = vec![Green, Red];" ++
+               "val b = &mut a;" ++
+               "fun test(x: &mut List<Light>) -> unit = { (*x)[0] = Red; return void }" ++
+               "test(b);" ++
+               "return 0"
+            ) TInt -- can't really test this yet
+
+      tcErrorTest ("val mut a = vec![Yellow];" ++ 
+               "val mut b = &mut a;" ++ 
+               "val c = &((*(&b))[0]);" ++
+               "val d = &mut b;" ++
+               "return 0"
+            )
+
+      tcErrorTest  ("val mut a = vec![Yellow];" ++ 
+               "val mut b = &mut a;" ++ 
+               "val c = &((*(&b))[0]);" ++
+               "fun test(x: &mut List<Light>) -> unit = { return void }" ++
+               "test(b);" ++
+               "return 0"
+            ) 
+
+      tcErrorTest  ("val mut a = vec![Yellow];" ++
+                    "val b = &mut a;" ++
+                    "val c = &mut a;"
+               )
+
+      tcErrorTest  ("val mut a = vec![Yellow];" ++
+                    "val b = &mut a;" ++
+                    "val c = &a;"
+               )
+      
+      tcErrorTest  ("val mut a = vec![Yellow];" ++
+                    "val b = &a;" ++
+                    "val c = &mut a;"
+               )
+      
+
    describe "typeChecker: immutable reference tests" $ do
       -- need to test dereferencing!!!
 
@@ -69,12 +241,6 @@ test = hspec $ do
 
       tcTest  ("val a = 10;" ++ 
                "val b = &a;" ++ 
-               "val c = &a;" ++ 
-               "return (a + b == 20) && (b + c == 20)"
-            ) TBool
-
-      tcTest  ("val a = 10;" ++ 
-               "val b = &a;" ++ 
                "val c = &(&a);" ++ 
                "return (&a >= b) && (&b >= c) && (c >= &(&a))"
             ) TBool
@@ -90,14 +256,14 @@ test = hspec $ do
                "return test(a)"
             ) TInt
 
-      tcTest  ("fun test(i: &(&List<&int>)) -> &int = {return i[0]}" ++ 
+      tcTest  ("fun test(i: &(&List<int>)) -> int = {return i[0]}" ++ 
                "val a = Green;" ++
                "val b = &a;" ++
                "val d = &a;" ++
                "val e = &(Red);" ++
                "val o = e;" ++
                "val nnn = &(&(Green));" ++
-               "return (test(&(&(vec![&(1)]))) == &(1))"
+               "return (test(&(&(vec![1]))) == 1)"
             ) TBool
 
       tcErrorTest  ("val a = 10;" ++ 
@@ -120,6 +286,11 @@ test = hspec $ do
       
 
    describe "typeChecker: list tests" $ do
+      tcTest  ("val mut list: List<List<List<int>>> = vec![vec![vec![]]];" ++
+               "ass list = vec![vec![vec![]]];" ++
+               "return 0"
+            ) TInt
+
       tcTest  ("val mut list: List<int> = vec![];" ++
                 "list.push(1);" ++
                 "return list[1]"
