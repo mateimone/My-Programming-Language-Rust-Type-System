@@ -45,6 +45,8 @@ library lang
                     , containers
                     , extra >= 1.7
                     , random >= 1.2
+                    , async ^>= 2.2.5
+                    , lens ^>= 5.3.4
 
 -- the main executable which lets you run the interpreter
 executable main

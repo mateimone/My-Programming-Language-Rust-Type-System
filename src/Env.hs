@@ -20,6 +20,7 @@ import qualified Data.Map.Strict as M
 import Control.Monad.State.Strict
 import Control.Monad.Except
 import Control.Monad.IO.Class      ( MonadIO(..) )
+import Control.Lens
 
 import Lang.Abs (Ident, Type(..))
 import Value    (Value(..), Closure, TClosure, Mutability, Mutability( Imm,Mut ), Object, Color, Slot(..), Addr(..), VarInfo (..))
@@ -86,6 +87,7 @@ maxUnwrapBorrowedValue (VRef (Addr addr)) = do
   maxUnwrapBorrowedValue val
 maxUnwrapBorrowedValue (VMutRef (Addr addr)) = do
   store <- gets refStore
+  liftIO $ print store
   let (Just (id, Prim val, _)) = M.lookup (Addr addr) (head store)
   maxUnwrapBorrowedValue val
 maxUnwrapBorrowedValue other = return other
