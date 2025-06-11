@@ -21,6 +21,7 @@ import qualified Data.Map.Strict as M
 import Data.List (foldl')
 import Control.Monad
 import Control.Monad.Trans.State.Strict
+import Control.Lens
 
 -- STATEMENT TYPE CHECKER ------------------------------------------------------------
 
@@ -217,7 +218,8 @@ infer s@(SAss x e) = do
       if (fitsInto realUnwrappedType (ty vi)) then do
         let c = isCopy realUnwrappedType
         let vi' = vi { live = True }
-        modify (\env -> env { scopes= M.insert x (vi', Mut) (head $ scopes env) : (tail $ scopes env)} )
+        -- modify (\env -> env { scopes= M.insert x (vi', Mut) (head $ scopes env) : (tail $ scopes env)} )
+        scopesL . _head %= M.insert x (vi', Mut)
         return ()
       else throwError $ "Type mismatch in assignment to " ++ show x
                       ++ ": variable has type " ++ show (ty vi)

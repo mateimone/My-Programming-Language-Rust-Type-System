@@ -17,6 +17,7 @@ import qualified Data.Map.Strict as M
 import Data.Set as S
 import Control.Monad
 import Control.Monad.State.Strict
+import Control.Lens
 
 -- STATEMENT INTERPRETER -------------------------------------------------------------
 
@@ -78,7 +79,7 @@ interp (SIfElse cond thn els) = do
 
 interp (SPush vec el) = do
     (VList addr) <- E.interp vec
-    h <- gets heap
+    h <- use heapL
     let (Just (OList list)) = M.lookup addr h
     el' <- E.interp el
     let newSlot = Prim el'
@@ -87,7 +88,7 @@ interp (SPush vec el) = do
 
 interp (SInsert vec i el) = do
     (VList addr) <- E.interp vec
-    h <- gets heap
+    h <- use heapL
     let (Just (OList list)) = M.lookup addr h
     el' <- E.interp el
     let newSlot = Prim el'
@@ -103,7 +104,7 @@ interp (SSetIdx vec idxs e) = do
     (VList addr) <- case v of
                       s@(VList _) -> return s
                       t@(VMutRef a) -> maxUnwrapBorrowedValue t
-    h <- gets heap
+    h <- use heapL
     let (Just (OList list)) = M.lookup addr h
     liftIO $ print addr
     newVal <- E.interp e
@@ -122,16 +123,16 @@ unwrapList :: [Slot Value] -> [Value] -> Slot Value -> Addr -> Eval ()
 unwrapList ls [(VInt i)] elemToSet currentAddr = do
     when (fromInteger i >= length ls) $ throwError $ "Index " ++ show i ++ " larger than the length of the list"
     let valAtIdx = ls !! (fromInteger i)
-    h <- gets heap
+    h <- use heapL
     case valAtIdx of
         (Prim v) -> do
             let newLs = (Prelude.take (fromInteger i) ls) ++ [elemToSet] ++ (Prelude.drop ((fromInteger i)+1) ls)
-            modify (\s -> s { heap = M.insert currentAddr (OList newLs) h })
-            h' <- gets heap
+            heapL %= M.insert currentAddr (OList newLs)
+            h' <- use heapL
             liftIO $ print h'
 unwrapList ls ((VInt i):idxs) elemToSet currentAddr = do
     let valAtIdx = ls !! (fromInteger i)
-    h <- gets heap
+    h <- use heapL
     liftIO $ print valAtIdx
     liftIO $ print ((VInt i):idxs)
     case valAtIdx of

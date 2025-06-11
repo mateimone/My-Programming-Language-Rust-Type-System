@@ -1,3 +1,5 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 module Env
   ( Env(..)
   , Env.empty
@@ -12,6 +14,7 @@ module Env
   , insertInStoreT, maxUnwrapType
   , readPrim
   , freshAddr, insertInHeap, readObject, replaceObject, numberOfRefs
+  , heapL, scopesL, funsL, nextAL, refStoreL
   , Slot(..)
   , randomString
   ) where
@@ -37,6 +40,14 @@ data Env v f = Env
   , refStore :: [M.Map Addr (Ident, v, Mutability {-reference mutability-})] --, Mutability {-, MutableBorrows-})]
   }
 
+makeLensesFor
+  [ ("scopes", "scopesL")
+  , ("funs", "funsL")
+  , ("heap", "heapL")
+  , ("nextA", "nextAL")
+  , ("refStore", "refStoreL")
+  ] ''Env
+
 empty :: Env v f
 empty = Env [M.empty] M.empty M.empty (Addr 0) [M.empty]
 
@@ -50,58 +61,60 @@ runApp st act = runExceptT (runStateT act st)
 
 
 type EvalEnv = Env (Slot Value) Closure
-type Eval a  = App EvalEnv String a
+type Eval a = App EvalEnv String a
 runEval :: EvalEnv -> Eval a -> IO (Either String (a, EvalEnv))
 runEval = runApp
 
-type TCEnv  = Env VarInfo  TClosure
-type TC a   = App TCEnv String a
-runTC  :: TCEnv  -> TC a -> IO (Either String (a, TCEnv))
+type TCEnv = Env VarInfo  TClosure
+type TC a = App TCEnv String a
+runTC  :: TCEnv -> TC a -> IO (Either String (a, TCEnv))
 runTC = runApp
 
 -- TC a = App (Env Type TClosure) String a
 
 insertInStore :: (Ident, Slot Value, Mutability) -> Eval Addr
 insertInStore tup = do
-  en <- get
-  let top = head $ refStore en
-  let rest = tail $ refStore en
-  let a@(Addr addr) = nextA en
+  -- en <- get
+  store <- use refStoreL
+  a@(Addr addr) <- use nextAL
+  top <- use (refStoreL . _head)
+  rest <- use (refStoreL . _tail)
+  -- let a@(Addr addr) = nextA en
+  refStoreL .= (M.insert a tup top) : rest
+  nextAL .= Addr (addr + 1)
 
-  modify (\e -> e { 
-    refStore = (M.insert a tup top):rest ,
-    nextA = (Addr $ (addr + 1))
-    })
+  -- modify (\e -> e { 
+  --   refStore = (M.insert a tup top):rest ,
+  --   nextA = (Addr $ (addr + 1))
+  --   })
   return a
 
 getBorrowedValue :: Addr -> Eval (Slot Value)
 getBorrowedValue (Addr addr) = do
-  store <- gets refStore
-  let (Just (id, val, _)) = M.lookup (Addr addr) (head store)
+  top <- use (refStoreL . _head)
+  let (Just (id, val, _)) = M.lookup (Addr addr) top
   return val
 
 maxUnwrapBorrowedValue :: Value -> Eval Value
 maxUnwrapBorrowedValue (VRef (Addr addr)) = do
-  store <- gets refStore
-  let (Just (id, Prim val, _)) = M.lookup (Addr addr) (head store)
+  Prim val <- getBorrowedValue (Addr addr)
   maxUnwrapBorrowedValue val
 maxUnwrapBorrowedValue (VMutRef (Addr addr)) = do
-  store <- gets refStore
-  liftIO $ print store
-  let (Just (id, Prim val, _)) = M.lookup (Addr addr) (head store)
+  Prim val <- getBorrowedValue (Addr addr)
   maxUnwrapBorrowedValue val
 maxUnwrapBorrowedValue other = return other
 
 modifyBorrowedValue :: Addr -> Slot Value -> Eval ()
 modifyBorrowedValue (Addr addr) newVal = do
-  store <- gets refStore
-  let (Just (id, Prim val, mut)) = M.lookup (Addr addr) (head store)
+  top <- use (refStoreL . _head)
+  rest <- use (refStoreL . _tail)
+  let (Just (id, Prim val, mut)) = M.lookup (Addr addr) top
   case mut of 
     Imm -> throwError $ "MODIFY BORROWED VALUE, THIS SHOULD NOT HAPPEN BECAUSE TYPECHECKER SHOULD FORBID MODIFYING IMMUTABLE AN REFERENCES' VALUE" ++
                         "Cannot modify value under immutable reference"
     Mut -> do
-              modify (\env -> env { refStore = ((M.insert) (Addr addr) (id, newVal, mut) (head store)):(tail store) } )
-              scs <- gets scopes
+              modify (\env -> env { refStore = ((M.insert) (Addr addr) (id, newVal, mut) top):rest } )
+              scs <- use scopesL
               foundId <- lookupVarMaybe id
               case foundId of
                 (Just _) -> assignVar id newVal
@@ -120,17 +133,15 @@ numberOfRefs t = (t, 0)
 insertInStoreT :: (Ident, VarInfo, Mutability) -> TC Addr
 insertInStoreT tup@(name, vi, mut) = do
   en <- get
-  let top = head $ refStore en
-  let rest = tail $ refStore en
-  let a@(Addr addr) = nextA en
+  a@(Addr addr) <- use nextAL
+  top <- use (refStoreL . _head)
+  rest <- use (refStoreL . _tail)
   let (VI ty cf live ib mb) = vi
   let newVI = if mut == Mut then (VI ty cf live ib (mb+1)) 
               else (VI ty cf live (ib+1) mb)
+  refStoreL .= (M.insert a tup top) : rest
+  nextAL .= Addr (addr + 1)
 
-  modify (\e -> e { 
-    refStore = (M.insert a tup top):rest ,
-    nextA = (Addr $ (addr + 1))
-    })
   return a
 
 -- insertVarT :: Ident -> (VarInfo, Mutability) -> TC ()
@@ -141,34 +152,37 @@ insertInStoreT tup@(name, vi, mut) = do
 
 freshAddr :: Eval Addr
 freshAddr = do
-  env <- get
-  let Addr a = nextA env
-  modify (\e -> e { nextA = Addr (a+1) })
-  return $ Addr a
+  -- env <- get
+  -- let Addr a = nextA env
+  adr@(Addr a) <- use nextAL
+  nextAL .= Addr (a + 1)
+  
+  return adr
 
 insertInHeap :: Object -> Eval Addr
 insertInHeap obj = do 
   a <- freshAddr
-  modify (\env -> 
-    let heap' = M.insert a obj (heap env)
-    in
-      env { heap = heap' }
-    )
+  heapL %= (\hp -> M.insert a obj hp)
+  -- modify (\env -> 
+  --   let heap' = M.insert a obj (heap env)
+  --   in
+  --     env { heap = heap' }
+  --   )
   return a
 
 readObject :: Addr -> Eval Object
 readObject a = do
-  h <- gets heap 
+  h <- use heapL
   case M.lookup a h of
     Just o -> return o
     Nothing -> throwError $ "No element in heap with address " ++ show a
 
 replaceObject :: Addr -> Object -> Eval ()
 replaceObject a o = do
-  h <- gets heap
-  let h' = M.insert a o h
-  modify (\e -> e { heap = h' })
-  return ()
+  -- h <- gets heap
+  -- let h' = M.insert a o h
+  -- modify (\e -> e { heap = h' })
+  heapL %= (\hp -> M.insert a o hp)
 
 -- lookupSlot :: Ident -> Eval (Slot, Mutability)
 -- lookupSlot x = do
@@ -208,13 +222,12 @@ withScopeT body = do
 --   modify (\e -> )
 
 topScope :: Env v f -> M.Map Ident (v, Mutability)
-topScope env = head (scopes env)
+topScope env = head (env ^. scopesL)
 
 lookupVar :: Ident -> Eval (Slot Value, Mutability)
 lookupVar x = do
-  env <- get
-  let scps = scopes env
-      iter [] = throwError $ "Variable " ++ show x ++ " is not bound"
+  scps <- use scopesL
+  let iter [] = throwError $ "Variable " ++ show x ++ " is not bound"
       iter (s:scs) = 
         case M.lookup x s of
           -- Just Moved -> throwError $ "Variable " ++ show x ++ " has had its value moved."
@@ -224,9 +237,8 @@ lookupVar x = do
 
 lookupVarMaybe :: Ident -> Eval (Maybe (Slot Value, Mutability))
 lookupVarMaybe x = do
-  env <- get
-  let scps = scopes env
-      iter [] = return Nothing
+  scps <- use scopesL
+  let iter [] = return Nothing
       iter (s:scs) = 
         case M.lookup x s of
           -- Just Moved -> throwError $ "Variable " ++ show x ++ " has had its value moved."
@@ -235,10 +247,12 @@ lookupVarMaybe x = do
   iter scps
 
 insertVar :: Ident -> (Slot Value, Mutability) -> Eval ()
-insertVar x tup = modify (\env ->
-  let scope  = topScope env
-      scope' = M.insert x tup scope
-  in  env { scopes = scope':(tail (scopes env)) })
+insertVar x tup = 
+  modify (over (scopesL . _head) (M.insert x tup))
+  -- modify (\env ->
+  -- let scope  = topScope env
+  --     scope' = M.insert x tup scope
+  -- in  env { scopes = scope':(tail (scopes env)) })
 
 readPrim :: Ident -> Eval (Value, Mutability)
 readPrim x = do
@@ -250,7 +264,7 @@ readPrim x = do
   
 assignVar :: Ident -> Slot Value -> Eval ()
 assignVar x slotVal = do
-  fs <- gets scopes
+  fs <- use scopesL
   let iter _ [] = throwError $ "variable " ++ show x ++ " is not bound"
       iter pref (sc:scs) = 
         case M.lookup x sc of
@@ -259,7 +273,8 @@ assignVar x slotVal = do
             -- liftIO $ print "we are here"
             let newScope = modifyVar x (slotVal, Mut) pref sc scs
             -- liftIO $ print $ "newScope" ++ show newScope
-            modify (\env -> env { scopes = newScope })
+            -- modify (\env -> env { scopes = newScope })
+            scopesL .= newScope
             -- scs <- gets scopes
             -- liftIO $ print $ "scope" ++ show scs
           Nothing -> iter (pref ++ [sc]) scs
@@ -299,25 +314,27 @@ modifyVar n tup prefix curr rest =
 
 changeVarTIB :: Ident -> Int -> TC ()
 changeVarTIB x newImm = do
-  fs <- gets scopes
+  fs <- use scopesL
   let iter _ [] = throwError $ "variable " ++ show x ++ " is not bound"
       iter pref (sc:scs) = 
         case M.lookup x sc of
           Just(oldVI, m) -> do
             let newScope = modifyVarT x (oldVI { immutableBorrows=newImm }, m) pref sc scs
-            modify (\env -> env { scopes = newScope })
+            -- modify (\env -> env { scopes = newScope })
+            scopesL .= newScope
           Nothing -> iter (pref ++ [sc]) scs
   iter [] fs
 
 changeVarTMB :: Ident -> Int -> TC ()
 changeVarTMB x newMut = do
-  fs <- gets scopes
+  fs <- use scopesL
   let iter _ [] = throwError $ "variable " ++ show x ++ " is not bound"
       iter pref (sc:scs) = 
         case M.lookup x sc of
           Just(oldVI, m) -> do
             let newScope = modifyVarT x (oldVI { mutableBorrows=newMut }, m) pref sc scs
-            modify (\env -> env { scopes = newScope })
+            -- modify (\env -> env { scopes = newScope })
+            scopesL .= newScope
           Nothing -> iter (pref ++ [sc]) scs
   iter [] fs
 
@@ -337,18 +354,19 @@ modifyVarT n tup prefix curr rest =
         next:rest' -> modifyVarT n tup (prefix ++ [curr]) next rest'
 
 insertVarT :: Ident -> (VarInfo, Mutability) -> TC ()
-insertVarT x tup = modify (\env -> 
-  let scope  = topScope env
-      scope' = M.insert x tup scope
-  in  env { scopes = scope':(tail (scopes env)) })
+insertVarT x tup = 
+  modify (over (scopesL . _head) (M.insert x tup))
+  -- modify (\env -> 
+  -- let scope  = topScope env
+  --     scope' = M.insert x tup scope
+  -- in  env { scopes = scope':(tail (scopes env)) })
 
   -- modify $ \s -> s { vars = M.insert x p (vars s) }
 
 lookupVarT :: Ident -> TC (VarInfo, Mutability)
 lookupVarT x = do
-  env <- get
-  let scps = scopes env
-      iter [] = throwError $ "Variable " ++ show x ++ " is not bound"
+  scps <- use scopesL
+  let iter [] = throwError $ "Variable " ++ show x ++ " is not bound"
       iter (s:scs) = 
         case M.lookup x s of
           Just vm -> return vm
@@ -357,23 +375,23 @@ lookupVarT x = do
 
 lookupFun :: Ident -> Eval (Closure, Mutability)
 lookupFun f = do
-  fs <- gets funs
+  fs <- use funsL
   case M.lookup f fs of
     Just pair -> return pair
     Nothing   -> throwError $ "undefined function: " ++ show f
 
 insertFun :: Ident -> (Closure, Mutability) -> Eval ()
-insertFun f pair = modify $ \env -> env { funs = M.insert f pair (funs env) }
+insertFun f pair = funsL %= M.insert f pair -- modify $ \env -> env { funs = M.insert f pair (funs env) }
 
 lookupFunT :: Ident -> TC (TClosure, Mutability)
 lookupFunT f = do
-  fs <- gets funs
+  fs <- use funsL
   case M.lookup f fs of
-    Just pair -> pure pair
+    Just pair -> return pair
     Nothing   -> throwError $ "undefined function: " ++ show f
 
 insertFunT :: Ident -> (TClosure, Mutability) -> TC ()
-insertFunT f p = modify $ \env -> env { funs = M.insert f p (funs env) }
+insertFunT f p = funsL %= M.insert f p -- modify $ \env -> env { funs = M.insert f p (funs env) }
 
 allowedChars :: String
 allowedChars = ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ "_*-@#"

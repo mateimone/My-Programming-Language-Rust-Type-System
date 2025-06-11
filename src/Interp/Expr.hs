@@ -13,6 +13,7 @@ import Data.List.Extra
 import System.Random (mkStdGen)
 -- import Control.Concurrent.MVar
 import Control.Concurrent.Async
+import Control.Lens
 
 
 arithmetic :: (Exp, Exp) -> (Integer -> Integer -> Integer) -> Eval Value
@@ -201,7 +202,7 @@ interp (EVec es) = do
     eis <- mapM Interp.Expr.interp es
     let slots = map Prim eis
     addr <- insertInHeap (OList slots)
-    h <- gets heap
+    h <- use heapL
     liftIO $ print (show h)
     return (VList addr)
 
@@ -288,7 +289,7 @@ interp (EDeref exp) = do
 
 interp (ERemove vec i) = do
     (VList addr) <- Interp.Expr.interp vec
-    h <- gets heap
+    h <- use heapL
     let (Just (OList list)) = M.lookup addr h
     (VInt idx) <- Interp.Expr.interp i
     when (idx >= (fromIntegral $ length list)) (throwError $ "Index " ++ show idx ++ " out of bounds for array " ++ show list)
@@ -324,14 +325,15 @@ interp (EApp f args) = do
     argvs <- mapM Interp.Expr.interp args
     let funScope = M.fromList [ (name,(Prim val,mut)) | ((name,mut),val) <- zip paramInfo argvs]
     outerEnv <- get
-    put outerEnv { scopes = [funScope] }
+    -- put outerEnv { scopes = [funScope] }
+    scopesL .= [funScope]
     result <- do
               interpAndPass stmts
               Interp.Expr.interp retE
-    store <- gets refStore
-    h <- gets heap
-    nextadr <- gets nextA
-    put outerEnv { refStore = store, heap = h, nextA = nextadr }
+    store <- use refStoreL
+    h <- use heapL
+    nextadr <- use nextAL
+    put outerEnv { refStore = store, heap = h, nextA = nextadr } -- how to make this into a lens?
     
     modifyEnvWithStoreAfterFN store
 
@@ -349,8 +351,8 @@ update :: (Addr, (Ident, Slot Value, Mutability)) -> Eval ()
 update (addr, tup@(_, _, Imm)) = return ()
 update (addr, tup@(name, newVal, Mut)) = do
     found <- lookupVarMaybe name
-    s <- gets refStore
-    scs <- gets scopes
+    s <- use refStoreL
+    scs <- use scopesL
     case found of
         Nothing -> return ()
         Just (oldVal, Mut) 

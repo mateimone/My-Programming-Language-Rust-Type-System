@@ -18,6 +18,7 @@ import Lang.Abs ( Exp(..)
 import qualified Data.Map.Strict as M
 import Control.Monad
 import Control.Monad.Trans.State.Strict
+import Control.Lens
 
 
 checkMoveNotAllowed :: Type -> Exp -> TC ()
@@ -140,7 +141,8 @@ infer (EVar x) = do
         throwError $ "Cannot move out of " ++ show x ++ " because it is being borrowed by " ++ (show $ immutableBorrows vi) ++ " immutable or " ++
                      (show $ mutableBorrows vi) ++ " mutable variables" 
     when (copyFlag vi == False) $ do -- move value if variable not primitive
-        modify (\env -> env { scopes= M.insert x (vi{ live=False },mut) (head $ scopes env) : (tail $ scopes env)} )
+        -- modify (\env -> env { scopes= M.insert x (vi{ live=False },mut) (head $ scopes env) : (tail $ scopes env)} )
+        scopesL . _head %= M.insert x (vi{live = False}, mut)
     return (ty vi)
     
 infer (ERef exp) = do
@@ -152,7 +154,8 @@ infer (ERef exp) = do
             when (not live) $ throwError $ "Variable " ++ show var ++ " was moved"
             when (mb /= 0) $ throwError "Cannot have immutable references while also having mutable references"
             let vi = fst tup
-            modify (\env -> env { scopes = M.insert var (vi{ immutableBorrows = (ib+1) },mut) (head $ scopes env) : (tail $ scopes env) } )
+            -- modify (\env -> env { scopes = M.insert var (vi{ immutableBorrows = (ib+1) },mut) (head $ scopes env) : (tail $ scopes env) } )
+            scopesL . _head %= M.insert var (vi{immutableBorrows = ib+1}, mut)
             -- _ <- insertInStoreT (var, fst v)
             return (TRef varTy)
         otherVal -> do
@@ -170,7 +173,8 @@ infer (EMutRef exp) = do
             when (ib /= 0) $ throwError $ "Cannot borrow " ++ show var ++ " as mutable because it is also borrowed as immutable"
             when (mb /= 0) $ throwError $ "Cannot borrow " ++ show var ++ " as mutable more than once at a time"
             let vi = fst tup
-            modify (\env -> env { scopes = M.insert var (vi{ mutableBorrows = (mb+1) }, mut) (head $ scopes env) : (tail $ scopes env) })
+            -- modify (\env -> env { scopes = M.insert var (vi{ mutableBorrows = (mb+1) }, mut) (head $ scopes env) : (tail $ scopes env) })
+            scopesL . _head %= M.insert var (vi{mutableBorrows = mb+1}, mut)
             return (TMutRef varTy)
         otherVal -> do
             e <- infer exp
