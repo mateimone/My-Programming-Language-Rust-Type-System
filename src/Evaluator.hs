@@ -15,6 +15,9 @@ import Lang.Par ( myLexer
 import Lang.ErrM 
 
 import Value
+import Control.Concurrent
+import Control.Concurrent.Chan
+import Control.Monad
 
 type Result a = Either String a
 
@@ -32,7 +35,10 @@ evaluateEv (eval, errDesc) input = do
     case prog of
         Bad err -> return (Left (errDesc ++ " error: " ++ err))
         Ok prog' -> do
-            resEnv <- runEval empty (eval prog')
+            ch <- newChan
+            _ <- forkIO $ forever (readChan ch >>= putStrLn)
+            let startEnv = empty ch
+            resEnv <- runEval startEnv (eval prog')
             let res = fmap fst resEnv
             let c = case res of
                         Left err' -> throw (errDesc ++ " error: " ++ err')
@@ -45,7 +51,10 @@ evaluateTc (eval, errDesc) input = do
     case prog of
         Bad err -> return (Left (errDesc ++ " error: " ++ err))
         Ok prog' -> do
-            resEnv <- runTC empty (eval prog')
+            ch <- newChan
+            _ <- forkIO $ forever (readChan ch >>= putStrLn)
+            let startEnv = empty ch
+            resEnv <- runTC startEnv (eval prog')
             let res = fmap fst resEnv
             let c = case res of
                         Left err' -> throw (errDesc ++ " error: " ++ err')

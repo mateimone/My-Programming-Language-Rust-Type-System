@@ -108,9 +108,6 @@ ERef.    Exp8 ::= "&" Exp8 ;
 EMutRef. Exp8 ::= "&mut" Exp8 ;
 EDeref.  Exp8 ::= "*" Exp8;
 
--- Concurrency
-EPar. Exp8 ::= "par" Exp7 Exp7 ;
-
 -- This part sets up the order of operation
 _. Exp8 ::= "(" Exp ")" ;
 _. Exp7 ::= Exp8 ;

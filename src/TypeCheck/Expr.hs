@@ -328,20 +328,6 @@ infer (ERemove prevE@(EIdx v prevI) i) = do
 --     if eTy == esTy then return TUnit 
 --     else throwError $ "Push: List's " ++ show vec ++ " elements are of type " ++ show esTy ++ ", but " ++ show el ++ " is of type " ++ show eTy
 
-infer (EPar e1 e2) = do
-    t1 <- infer e1
-    t2 <- infer e2
-    when (not (fitsInto t1 t2 || fitsInto t2 t1)) $ 
-        throwError "Par: both branches must have the same type"
-    -- case (t1, t2) of
-    --     (a, b) | a == b -> return $ TList a
-    --     (TRef t, TMutRef t2) -> return $ TList 
-    case (t1, t2) of
-        t@(TRef _, _) -> return $ TList (fst t)
-        t@(_, TRef _) -> return $ TList (snd t)
-        t@(TMutRef _, TMutRef _) -> return $ TList (fst t)
-        t@(a, b) -> return $ TList a  -- TList b should have worked as well
-
 -- Functions
 infer (EApp f args) = do
     (TFun paramsT_Muts retTy, _) <- lookupFunT f

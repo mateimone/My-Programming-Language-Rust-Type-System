@@ -11,8 +11,6 @@ import Control.Monad.Trans.State.Strict
 import {-# SOURCE #-} Interp.Stmt as S
 import Data.List.Extra
 import System.Random (mkStdGen)
--- import Control.Concurrent.MVar
-import Control.Concurrent.Async
 import Control.Lens
 
 
@@ -298,23 +296,6 @@ interp (ERemove vec i) = do
     case e of
         (Prim val) -> return val
         _ -> throwError $ "No idea what should be here.\n" ++ show vec ++ "\n" ++ show idx ++ "\n" ++ show list
-
-interp (EPar e1 e2) = do
-    env <- get
-
-    t1 <- liftIO $ async (runEval env (Interp.Expr.interp e1))
-    t2 <- liftIO $ async (runEval env (Interp.Expr.interp e2))
-
-    r1 <- liftIO $ wait t1
-    r2 <- liftIO $ wait t2
-
-    case (r1, r2) of
-        (Right (v1, _), Right (v2, _)) -> do
-            let arr = [Prim v1, Prim v2]
-            addr <- insertInHeap (OList arr)
-            return (VList addr)
-        (Left err, _) -> throwError err
-        (_, Left err) -> throwError err
 
 interp (EApp f args) = do
     (Fun paramInfo stmts retE, _) <- lookupFun f

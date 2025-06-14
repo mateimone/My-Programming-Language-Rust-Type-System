@@ -13,6 +13,7 @@ module Env
   , insertInStore, getBorrowedValue, maxUnwrapBorrowedValue, modifyBorrowedValue
   , insertInStoreT, maxUnwrapType
   , readPrim
+  , logEval
   , freshAddr, insertInHeap, readObject, replaceObject, numberOfRefs
   , heapL, scopesL, funsL, nextAL, refStoreL
   , Slot(..)
@@ -31,13 +32,17 @@ import Data.Set
 import Data.Int
 import System.Random (StdGen, randomR, mkStdGen)
 import Data.Traversable (mapAccumL)
+import FiniteMap
+import Control.Concurrent
 
 data Env v f = Env
   { scopes :: [M.Map Ident (v, Mutability {-, MutableBorrows-})]
   , funs :: M.Map Ident (f, Mutability)
   , heap :: M.Map Addr Object
   , nextA :: Addr  -- to remove, use length of heap instead
-  , refStore :: [M.Map Addr (Ident, v, Mutability {-reference mutability-})] --, Mutability {-, MutableBorrows-})]
+  -- , refStore :: [M.Map Addr (Ident, v, Mutability {-reference mutability-})] --, Mutability {-, MutableBorrows-})]
+  , refStore :: [M.Map Addr (Ident, v, Mutability)]
+  , logChan :: Chan String
   }
 
 makeLensesFor
@@ -46,10 +51,11 @@ makeLensesFor
   , ("heap", "heapL")
   , ("nextA", "nextAL")
   , ("refStore", "refStoreL")
+  , ("logChan", "logChanL")
   ] ''Env
 
-empty :: Env v f
-empty = Env [M.empty] M.empty M.empty (Addr 0) [M.empty]
+empty :: Chan String -> Env v f
+empty ch = Env [M.empty] M.empty M.empty (Addr 0) [M.empty] ch
 
 type App env err a = StateT env (ExceptT err IO) a
 
@@ -70,6 +76,11 @@ type TC a = App TCEnv String a
 runTC  :: TCEnv -> TC a -> IO (Either String (a, TCEnv))
 runTC = runApp
 
+logEval :: String -> Eval ()
+logEval s = do
+  ch <- use logChanL
+  liftIO (writeChan ch s)
+
 -- TC a = App (Env Type TClosure) String a
 
 insertInStore :: (Ident, Slot Value, Mutability) -> Eval Addr
@@ -82,6 +93,13 @@ insertInStore tup = do
   -- let a@(Addr addr) = nextA en
   refStoreL .= (M.insert a tup top) : rest
   nextAL .= Addr (addr + 1)
+
+  let (_, v, m) = tup
+  let mut = case m of
+              Imm -> "immutably"
+              Mut -> "mutably"
+
+  logEval $ "alloc store @" ++ show a ++ ", " ++ mut ++ " borrowed value is " ++ show v ++ " (at runtime)"
 
   -- modify (\e -> e { 
   --   refStore = (M.insert a tup top):rest ,
@@ -162,6 +180,7 @@ freshAddr = do
 insertInHeap :: Object -> Eval Addr
 insertInHeap obj = do 
   a <- freshAddr
+  logEval $ "alloc heap @" ++ show a ++ ", object " ++ show obj
   heapL %= (\hp -> M.insert a obj hp)
   -- modify (\env -> 
   --   let heap' = M.insert a obj (heap env)
@@ -179,9 +198,14 @@ readObject a = do
 
 replaceObject :: Addr -> Object -> Eval ()
 replaceObject a o = do
+  
+  
   -- h <- gets heap
   -- let h' = M.insert a o h
   -- modify (\e -> e { heap = h' })
+
+  -- Can be changed to
+  logEval $ "replace heap @" ++ show a ++ ", object " ++ show o
   heapL %= (\hp -> M.insert a o hp)
 
 -- lookupSlot :: Ident -> Eval (Slot, Mutability)
@@ -245,14 +269,21 @@ lookupVarMaybe x = do
           Just vm -> return (Just vm)
           Nothing -> iter scs
   iter scps
+  
 
 insertVar :: Ident -> (Slot Value, Mutability) -> Eval ()
 insertVar x tup = 
-  modify (over (scopesL . _head) (M.insert x tup))
+
   -- modify (\env ->
   -- let scope  = topScope env
   --     scope' = M.insert x tup scope
   -- in  env { scopes = scope':(tail (scopes env)) })
+
+  -- Can be changed to
+
+  modify (over (scopesL . _head) (M.insert x tup))
+
+  
 
 readPrim :: Ident -> Eval (Value, Mutability)
 readPrim x = do
