@@ -16,7 +16,6 @@ module Env
   , logEval
   , freshAddr, insertInHeap, readObject, replaceObject, numberOfRefs
   , heapL, scopesL, funsL, nextAL, refStoreL
-  , Slot(..)
   , randomString
   ) where
 
@@ -26,8 +25,8 @@ import Control.Monad.Except
 import Control.Monad.IO.Class      ( MonadIO(..) )
 import Control.Lens
 
-import Lang.Abs (Ident, Type(..))
-import Value    (Value(..), Closure, TClosure, Mutability, Mutability( Imm,Mut ), Object, Color, Slot(..), Addr(..), VarInfo (..))
+import Lang.Abs (Ident, Type(..), Light)
+import Value    (Value(..), Closure, TClosure, Mutability, Mutability( Imm,Mut ), Object, Addr(..), VarInfo (..))
 import Data.Set
 import Data.Int
 import System.Random (StdGen, randomR, mkStdGen)
@@ -37,8 +36,8 @@ import Control.Concurrent
 
 data Env v f = Env
   { scopes :: [M.Map Ident (v, Mutability {-, MutableBorrows-})]
-  , funs :: M.Map Ident (f, Mutability)
-  , heap :: M.Map Addr Object
+  , funs :: M.Map Ident f
+  , heap :: FiniteMap Addr Object
   , nextA :: Addr  -- to remove, use length of heap instead
   -- , refStore :: [M.Map Addr (Ident, v, Mutability {-reference mutability-})] --, Mutability {-, MutableBorrows-})]
   , refStore :: [M.Map Addr (Ident, v, Mutability)]
@@ -55,7 +54,7 @@ makeLensesFor
   ] ''Env
 
 empty :: Chan String -> Env v f
-empty ch = Env [M.empty] M.empty M.empty (Addr 0) [M.empty] ch
+empty ch = Env [M.empty] M.empty FiniteMap.empty (Addr 0) [M.empty] ch
 
 type App env err a = StateT env (ExceptT err IO) a
 
@@ -66,7 +65,7 @@ runApp
 runApp st act = runExceptT (runStateT act st)
 
 
-type EvalEnv = Env (Slot Value) Closure
+type EvalEnv = Env Value Closure
 type Eval a = App EvalEnv String a
 runEval :: EvalEnv -> Eval a -> IO (Either String (a, EvalEnv))
 runEval = runApp
@@ -83,7 +82,7 @@ logEval s = do
 
 -- TC a = App (Env Type TClosure) String a
 
-insertInStore :: (Ident, Slot Value, Mutability) -> Eval Addr
+insertInStore :: (Ident, Value, Mutability) -> Eval Addr
 insertInStore tup = do
   -- en <- get
   store <- use refStoreL
@@ -107,26 +106,31 @@ insertInStore tup = do
   --   })
   return a
 
-getBorrowedValue :: Addr -> Eval (Slot Value)
+getBorrowedValue :: Addr -> Eval Value
 getBorrowedValue (Addr addr) = do
-  top <- use (refStoreL . _head)
-  let (Just (id, val, _)) = M.lookup (Addr addr) top
-  return val
+  store <- use refStoreL
+  let iter [] = throwError $ "Address " ++ show addr ++ " cannot be found in the reference store"
+      iter (s:scs) = 
+        case M.lookup (Addr addr) s of
+          (Just (id, val, _)) -> return val
+          Nothing -> iter scs
+
+  iter store
 
 maxUnwrapBorrowedValue :: Value -> Eval Value
 maxUnwrapBorrowedValue (VRef (Addr addr)) = do
-  Prim val <- getBorrowedValue (Addr addr)
+  val <- getBorrowedValue (Addr addr)
   maxUnwrapBorrowedValue val
 maxUnwrapBorrowedValue (VMutRef (Addr addr)) = do
-  Prim val <- getBorrowedValue (Addr addr)
+  val <- getBorrowedValue (Addr addr)
   maxUnwrapBorrowedValue val
 maxUnwrapBorrowedValue other = return other
 
-modifyBorrowedValue :: Addr -> Slot Value -> Eval ()
+modifyBorrowedValue :: Addr -> Value -> Eval ()
 modifyBorrowedValue (Addr addr) newVal = do
   top <- use (refStoreL . _head)
   rest <- use (refStoreL . _tail)
-  let (Just (id, Prim val, mut)) = M.lookup (Addr addr) top
+  let (Just (id, val, mut)) = M.lookup (Addr addr) top
   case mut of 
     Imm -> throwError $ "MODIFY BORROWED VALUE, THIS SHOULD NOT HAPPEN BECAUSE TYPECHECKER SHOULD FORBID MODIFYING IMMUTABLE AN REFERENCES' VALUE" ++
                         "Cannot modify value under immutable reference"
@@ -136,7 +140,7 @@ modifyBorrowedValue (Addr addr) newVal = do
               foundId <- lookupVarMaybe id
               case foundId of
                 (Just _) -> assignVar id newVal
-                (Nothing) -> return ()
+                Nothing -> return ()
 
 maxUnwrapType :: Type -> TC Type
 maxUnwrapType (TRef t) = maxUnwrapType t
@@ -181,7 +185,7 @@ insertInHeap :: Object -> Eval Addr
 insertInHeap obj = do 
   a <- freshAddr
   logEval $ "alloc heap @" ++ show a ++ ", object " ++ show obj
-  heapL %= (\hp -> M.insert a obj hp)
+  heapL %= (\hp -> bind a obj hp)
   -- modify (\env -> 
   --   let heap' = M.insert a obj (heap env)
   --   in
@@ -192,7 +196,7 @@ insertInHeap obj = do
 readObject :: Addr -> Eval Object
 readObject a = do
   h <- use heapL
-  case M.lookup a h of
+  case lookupFM a h of
     Just o -> return o
     Nothing -> throwError $ "No element in heap with address " ++ show a
 
@@ -206,7 +210,7 @@ replaceObject a o = do
 
   -- Can be changed to
   logEval $ "replace heap @" ++ show a ++ ", object " ++ show o
-  heapL %= (\hp -> M.insert a o hp)
+  heapL %= (\hp -> bind a o hp)
 
 -- lookupSlot :: Ident -> Eval (Slot, Mutability)
 -- lookupSlot x = do
@@ -238,6 +242,8 @@ withScopeT :: TC a -> TC a
 withScopeT body = do
   modify (\e -> pushScope e)
   r <- body
+  -- topStore <- use (refStoreL . _head)
+  -- topScope <- use ()
   modify (\e -> popScope e)
   return r
 
@@ -248,7 +254,7 @@ withScopeT body = do
 topScope :: Env v f -> M.Map Ident (v, Mutability)
 topScope env = head (env ^. scopesL)
 
-lookupVar :: Ident -> Eval (Slot Value, Mutability)
+lookupVar :: Ident -> Eval (Value, Mutability)
 lookupVar x = do
   scps <- use scopesL
   let iter [] = throwError $ "Variable " ++ show x ++ " is not bound"
@@ -259,7 +265,7 @@ lookupVar x = do
           Nothing -> iter scs
   iter scps
 
-lookupVarMaybe :: Ident -> Eval (Maybe (Slot Value, Mutability))
+lookupVarMaybe :: Ident -> Eval (Maybe (Value, Mutability))
 lookupVarMaybe x = do
   scps <- use scopesL
   let iter [] = return Nothing
@@ -271,7 +277,7 @@ lookupVarMaybe x = do
   iter scps
   
 
-insertVar :: Ident -> (Slot Value, Mutability) -> Eval ()
+insertVar :: Ident -> (Value, Mutability) -> Eval ()
 insertVar x tup = 
 
   -- modify (\env ->
@@ -289,11 +295,9 @@ readPrim :: Ident -> Eval (Value, Mutability)
 readPrim x = do
   (slot, mut) <- lookupVar x
   case slot of
-    Prim v -> pure (v, mut)
-    Moved  -> throwError $ "Variable " ++ show x ++ " was moved"
-    -- _      -> err "is not a primitive"
+    v -> pure (v, mut)
   
-assignVar :: Ident -> Slot Value -> Eval ()
+assignVar :: Ident -> Value -> Eval ()
 assignVar x slotVal = do
   fs <- use scopesL
   let iter _ [] = throwError $ "variable " ++ show x ++ " is not bound"
@@ -313,11 +317,11 @@ assignVar x slotVal = do
 
 modifyVar :: 
   Ident -> 
-  (Slot Value, Mutability) -> 
-  [M.Map Ident (Slot Value, Mutability)] -> 
-  M.Map Ident (Slot Value, Mutability) -> 
-  [M.Map Ident (Slot Value, Mutability)] -> 
-  [M.Map Ident (Slot Value, Mutability)]
+  (Value, Mutability) -> 
+  [M.Map Ident (Value, Mutability)] -> 
+  M.Map Ident (Value, Mutability) -> 
+  [M.Map Ident (Value, Mutability)] -> 
+  [M.Map Ident (Value, Mutability)]
 modifyVar n tup prefix curr rest = 
   case M.lookup n curr of
     Just _  -> prefix ++ (M.insert n tup curr : rest)
@@ -404,24 +408,24 @@ lookupVarT x = do
           Nothing -> iter scs
   iter scps
 
-lookupFun :: Ident -> Eval (Closure, Mutability)
+lookupFun :: Ident -> Eval Closure
 lookupFun f = do
   fs <- use funsL
   case M.lookup f fs of
     Just pair -> return pair
     Nothing   -> throwError $ "undefined function: " ++ show f
 
-insertFun :: Ident -> (Closure, Mutability) -> Eval ()
+insertFun :: Ident -> Closure -> Eval ()
 insertFun f pair = funsL %= M.insert f pair -- modify $ \env -> env { funs = M.insert f pair (funs env) }
 
-lookupFunT :: Ident -> TC (TClosure, Mutability)
+lookupFunT :: Ident -> TC TClosure
 lookupFunT f = do
   fs <- use funsL
   case M.lookup f fs of
     Just pair -> return pair
     Nothing   -> throwError $ "undefined function: " ++ show f
 
-insertFunT :: Ident -> (TClosure, Mutability) -> TC ()
+insertFunT :: Ident -> TClosure -> TC ()
 insertFunT f p = funsL %= M.insert f p -- modify $ \env -> env { funs = M.insert f p (funs env) }
 
 allowedChars :: String

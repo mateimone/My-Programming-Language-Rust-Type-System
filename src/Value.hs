@@ -3,25 +3,19 @@ module Value where
 import Lang.Abs ( Exp
                 , Ident
                 , Type
-                , Stmt )
+                , Stmt
+                , Light )
 import Lang.Abs (Type(..))
 
 
 newtype Addr = Addr Int 
     deriving (Eq, Ord, Show)
 
-data Slot v
-  = Prim v  -- primitive values
-  -- | Ref Addr    -- for example for: let a = &1;
-  -- | Borrowed ? Addr  
-  | Moved       -- after a move 
-  deriving (Eq, Show)
-
 data Value 
     = VInt Integer
     | VBool Bool
     | VUnit 
-    | VLight Color
+    | VLight Light
     | VList Addr  -- address in heap
     | VRef Addr   -- address in store
     | VMutRef Addr -- address in store
@@ -32,7 +26,7 @@ isCopy TInt = True
 isCopy TBool = True
 isCopy (TRef t) = True
 isCopy (TMutRef t) = True
-isCopy _ = False -- TLight, TList
+isCopy _ = False
 
 fitsInto :: Type -> Type -> Bool
 fitsInto  a b 
@@ -52,10 +46,7 @@ data VarInfo = VI
   deriving (Show, Eq)
 
 data Object
-    = OList [Slot Value]
-  deriving (Show, Eq)
-
-data Color = Red | Yellow | Green
+    = OList [Value]
   deriving (Show, Eq)
 
 data Closure = Fun [(Ident, Mutability)] [Stmt] Exp

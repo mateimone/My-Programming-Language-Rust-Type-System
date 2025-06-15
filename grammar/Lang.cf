@@ -17,6 +17,9 @@ ArgMut.   Arg  ::= "mut" Ident ":" Type ;
 separator Arg "," ;
 separator Exp7 "," ;
 IndexList. IndexList ::= "[" Exp "]" ;
+Red. Light ::= "Red" ;
+Yellow. Light ::= "Yellow" ;
+Green. Light ::= "Green" ;
 []. [IndexList] ::= ;
 (:). [IndexList] ::= IndexList [IndexList] ;
 
@@ -53,6 +56,8 @@ SSetIdx. Stmt ::= Exp8 [IndexList] "=" Exp7 ";" ;
 -- SReturn. Stmt ::= "return " Exp8 ";" ;
 SExp. Stmt ::= Exp ";" ;
 SAssDeref. Stmt ::= "*" Exp8 "=" Exp8 ";" ;
+SArtBlock. Stmt ::= "{" [Stmt] "}" ;
+
 
 -- EXPRESSIONS --------------------------------------------------------
 
@@ -92,9 +97,7 @@ EApp. Exp8 ::= Ident "(" [Exp7] ")";
 EVoid. Exp8 ::= "void" ;
 
 -- Light
-ERed.    Exp7 ::= "Red" ;
-EYellow. Exp7 ::= "Yellow" ;
-EGreen.  Exp7 ::= "Green" ;
+ELight. Exp7 ::= Light ;
 
 -- Lists
 EVec. Exp7 ::= "vec!" "[" [Exp7] "]" ;

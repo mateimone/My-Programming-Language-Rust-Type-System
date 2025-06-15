@@ -12,6 +12,7 @@ import {-# SOURCE #-} Interp.Stmt as S
 import Data.List.Extra
 import System.Random (mkStdGen)
 import Control.Lens
+import FiniteMap
 
 
 arithmetic :: (Exp, Exp) -> (Integer -> Integer -> Integer) -> Eval Value
@@ -21,14 +22,14 @@ arithmetic (e1, e2) f = do
     case (v1, v2) of
         (VInt i1, VInt i2) -> return $ VInt (f i1 i2)
         (VRef a, VInt i2) -> do 
-            (Prim (VInt i1)) <- getBorrowedValue a
+            (VInt i1) <- getBorrowedValue a
             return $ VInt (f i1 i2)
         (VInt i1, VRef a) -> do 
-            (Prim (VInt i2)) <- getBorrowedValue a
+            (VInt i2) <- getBorrowedValue a
             return $ VInt (f i1 i2)
         (VRef a, VRef b) -> do
-            (Prim (VInt i1)) <- getBorrowedValue a
-            (Prim (VInt i2)) <- getBorrowedValue b
+            (VInt i1) <- getBorrowedValue a
+            (VInt i2) <- getBorrowedValue b
             return $ VInt (f i1 i2)
         _                  -> throwError "Arithmetic can only be performed on integers"
 
@@ -72,7 +73,7 @@ interp (ENot e) =  do
     case v of
         VBool b -> return $ VBool (not b)
         VRef a -> do
-            (Prim (VBool b)) <- getBorrowedValue a
+            (VBool b) <- getBorrowedValue a
             return $ VBool (not b)
         _       -> throwError "Boolean operations can only be performed on booleans"
 interp (EAnd e1 e2) = logic (e1, e2) (&&)
@@ -192,14 +193,11 @@ interp (EVar x) = fst <$> readPrim x
 --     put outerEnv
 --     return result
 
-interp ERed    = return (VLight Red)
-interp EYellow = return (VLight Yellow)
-interp EGreen  = return (VLight Green)
+interp (ELight color) = return (VLight color)
 
 interp (EVec es) = do
     eis <- mapM Interp.Expr.interp es
-    let slots = map Prim eis
-    addr <- insertInHeap (OList slots)
+    addr <- insertInHeap (OList eis)
     h <- use heapL
     liftIO $ print (show h)
     return (VList addr)
@@ -220,12 +218,10 @@ interp (EIdx vec i) = do
         throwError $ "Index " ++ show i ++ " is out of bounds for " ++ show list 
     else (let el = elems !! (fromInteger idx)
         in  case el of
-            (Prim i@(VInt _)) -> return i
-            (Prim b@(VBool _)) -> return b
-            (Prim u@VUnit) -> return u
-            (Prim x) -> return x
-            -- (Prim _) -> throwError "Non-copyable element may not be moved"
-            -- _ -> throwError $ "No idea what should be here.\n" ++ show vec ++ "\n" ++ show i ++ "\n" ++ show elems
+            i@(VInt _) -> return i
+            b@(VBool _) -> return b
+            u@VUnit -> return u
+            x -> return x
         )
 
 interp (ERef exp) = do
@@ -233,11 +229,11 @@ interp (ERef exp) = do
     
     case exp of
         (EVar var) -> do
-            a@(Addr refAddr) <- insertInStore (var, Prim e, Imm)
+            a@(Addr refAddr) <- insertInStore (var, e, Imm)
             return (VRef a)
         otherVal -> do
             let (tempVarString, g) = randomString (mkStdGen 42)
-            a@(Addr refAddr) <- insertInStore (Ident tempVarString, Prim e, Imm) 
+            a@(Addr refAddr) <- insertInStore (Ident tempVarString, e, Imm) 
             return (VRef a)
 
 interp (EMutRef exp) = do
@@ -245,11 +241,11 @@ interp (EMutRef exp) = do
 
     case exp of
         (EVar var) -> do
-            a@(Addr refAddr) <- insertInStore (var, Prim e, Mut)
+            a@(Addr refAddr) <- insertInStore (var, e, Mut)
             return (VMutRef a)
         otherVal -> do
             let (tempVarString, g) = randomString (mkStdGen 42)
-            a@(Addr refAddr) <- insertInStore (Ident tempVarString, Prim e, Mut)
+            a@(Addr refAddr) <- insertInStore (Ident tempVarString, e, Mut)
             return (VMutRef a)
 
 interp (EDeref exp) = do
@@ -257,10 +253,10 @@ interp (EDeref exp) = do
     case e of
         (VRef addr) -> do
             -- (VRef addr) <- Interp.Expr.interp a
-            (Prim val) <- getBorrowedValue addr
+            val <- getBorrowedValue addr
             return val
         (VMutRef addr) -> do
-            (Prim val) <- getBorrowedValue addr
+            val <- getBorrowedValue addr
             return val
         _ -> throwError "Can only dereference a reference"
 
@@ -288,23 +284,22 @@ interp (EDeref exp) = do
 interp (ERemove vec i) = do
     (VList addr) <- Interp.Expr.interp vec
     h <- use heapL
-    let (Just (OList list)) = M.lookup addr h
+    let (Just (OList list)) = lookupFM addr h
     (VInt idx) <- Interp.Expr.interp i
     when (idx >= (fromIntegral $ length list)) (throwError $ "Index " ++ show idx ++ " out of bounds for array " ++ show list)
     let (e, rest) = removeElementAt idx list
     replaceObject addr (OList rest)
     case e of
-        (Prim val) -> return val
-        _ -> throwError $ "No idea what should be here.\n" ++ show vec ++ "\n" ++ show idx ++ "\n" ++ show list
+        val -> return val
 
 interp (EApp f args) = do
-    (Fun paramInfo stmts retE, _) <- lookupFun f
+    (Fun paramInfo stmts retE) <- lookupFun f
 
     when (length paramInfo /= length args) $
        throwError $ "function " ++ show f ++ " expects " ++ show (length paramInfo) ++ " arguments"
 
     argvs <- mapM Interp.Expr.interp args
-    let funScope = M.fromList [ (name,(Prim val,mut)) | ((name,mut),val) <- zip paramInfo argvs]
+    let funScope = M.fromList [ (name,(val,mut)) | ((name,mut),val) <- zip paramInfo argvs]
     outerEnv <- get
     -- put outerEnv { scopes = [funScope] }
     scopesL .= [funScope]
@@ -320,15 +315,15 @@ interp (EApp f args) = do
 
     return result
 
-modifyEnvWithStoreAfterFN :: [M.Map Addr (Ident, Slot Value, Mutability)] -> Eval ()
+modifyEnvWithStoreAfterFN :: [M.Map Addr (Ident, Value, Mutability)] -> Eval ()
 modifyEnvWithStoreAfterFN store = do
     mapM_ modifyEnvWithAStore store
     
-modifyEnvWithAStore :: M.Map Addr (Ident, Slot Value, Mutability) -> Eval ()
+modifyEnvWithAStore :: M.Map Addr (Ident, Value, Mutability) -> Eval ()
 modifyEnvWithAStore store = do
     mapM_ update (M.toList store)
 
-update :: (Addr, (Ident, Slot Value, Mutability)) -> Eval ()
+update :: (Addr, (Ident, Value, Mutability)) -> Eval ()
 update (addr, tup@(_, _, Imm)) = return ()
 update (addr, tup@(name, newVal, Mut)) = do
     found <- lookupVarMaybe name

@@ -5,6 +5,7 @@ import Test.Hspec
 import Run ( run )
 import Value
 import Data.Either ( isLeft )
+import Lang.Abs
 
 interpTest :: String -> Value -> Spec
 interpTest input expected =

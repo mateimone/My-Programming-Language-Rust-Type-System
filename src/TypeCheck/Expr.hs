@@ -192,10 +192,7 @@ infer (EDeref exp) = do
             | otherwise -> throwError $ "Cannot move " ++ show exp
         _ -> throwError "Can only dereference a reference"
 
-
-infer ERed    = return TLight
-infer EYellow = return TLight
-infer EGreen  = return TLight
+infer (ELight _) = return TLight
 
 infer (EVec es) = do
     ets <- mapM infer es
@@ -330,7 +327,7 @@ infer (ERemove prevE@(EIdx v prevI) i) = do
 
 -- Functions
 infer (EApp f args) = do
-    (TFun paramsT_Muts retTy, _) <- lookupFunT f
+    (TFun paramsT_Muts retTy) <- lookupFunT f
     -- done by both the typechecker and the interpreter
     when (length paramsT_Muts /= length args) $
        throwError $ "function " ++ show f ++ " expects " ++ show (length paramsT_Muts) ++ " arguments"

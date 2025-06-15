@@ -182,7 +182,7 @@ infer (SFun f params retTy stmts lastE) = do
         ": annotation says " ++ show retTy ++
         ", but body returns " ++ show tBody
   let types = map ty argst
-  insertFunT f (TFun (zip types argMuts) retTy, Imm)
+  insertFunT f (TFun (zip types argMuts) retTy)
 
 
 -- Currently cannot use functions as first class values

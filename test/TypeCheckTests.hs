@@ -266,6 +266,30 @@ test = hspec $ do
                "return (test(&(&(vec![1]))) == 1)"
             ) TBool
 
+      tcTest  ("val mut a = 50;" ++ 
+               "val b = &mut a;" ++
+               "val c = a;" ++
+               "return 0"
+            ) TInt
+
+      tcTest  ("val mut a = 50;" ++ 
+               "val b = &a;" ++
+               "val c = a;" ++
+               "return 0"
+            ) TInt
+
+      tcErrorTest  ("val mut a = Green;" ++ 
+               "val b = &mut a;" ++
+               "val c = a;" ++
+               "return 0"
+            ) 
+
+      tcErrorTest  ("val mut a = Green;" ++ 
+               "val b = &a;" ++
+               "val c = a;" ++
+               "return 0"
+            ) 
+
       tcErrorTest  ("val a = 10;" ++ 
                     "val b = &a;" ++ 
                     "val c = &a;" ++ 
@@ -400,6 +424,8 @@ test = hspec $ do
             ) TBool
 
       tcErrorTest  "val list = vec![]; return 0"
+
+      tcErrorTest  "fun test() -> unit = {return void} val list = vec![test]; return 0" 
 
       tcErrorTest  ("val mut list = vec![vec![vec![1,2,3]]];" ++ 
                "val a = list[0][0];" ++ 

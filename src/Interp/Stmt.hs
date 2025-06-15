@@ -18,6 +18,7 @@ import Data.Set as S
 import Control.Monad
 import Control.Monad.State.Strict
 import Control.Lens
+import FiniteMap
 
 -- STATEMENT INTERPRETER -------------------------------------------------------------
 
@@ -32,13 +33,13 @@ interp (SExp e) = do
 -- Supports redeclaration of variables, be they mutable or immutable
 interp (SLet x e) = do
     val <- E.interp e
-    insertVar x (Prim val, Imm)
+    insertVar x (val, Imm)
 
 interp (SLetAnn x ty e) = interp (SLet x e) 
 
 interp (SLetM x e) = do
     val <- E.interp e
-    insertVar x (Prim val, Mut)
+    insertVar x (val, Mut)
 
 interp (SLetMAnn x ty e) = interp (SLetM x e)
 
@@ -49,13 +50,16 @@ interp (SFun f params retTy body lastE) = do
                          ArgImm i _ -> (i,False)
                          ArgMut i _ -> (i,True) ]
 
-  insertFun f (Fun bindInfo body lastE, Imm)
+  insertFun f (Fun bindInfo body lastE)
 
 -- Currently cannot use functions as first class values
 interp (SAss x e) = -- case x of 
     do
       v <- E.interp e
-      assignVar x (Prim v)
+      assignVar x v
+
+-- interp (SArtBlock stmts) = do
+--     withScope (interpAndPass stmts)
 
 interp w@(SWhile cond stmts) = do
     e <- get
@@ -80,18 +84,18 @@ interp (SIfElse cond thn els) = do
 interp (SPush vec el) = do
     (VList addr) <- E.interp vec
     h <- use heapL
-    let (Just (OList list)) = M.lookup addr h
+    let (Just (OList list)) = lookupFM addr h
     el' <- E.interp el
-    let newSlot = Prim el'
+    let newSlot = el'
     let newList = list ++ [newSlot]
     replaceObject addr (OList newList) 
 
 interp (SInsert vec i el) = do
     (VList addr) <- E.interp vec
     h <- use heapL
-    let (Just (OList list)) = M.lookup addr h
+    let (Just (OList list)) = lookupFM addr h
     el' <- E.interp el
-    let newSlot = Prim el'
+    let newSlot = el'
     (VInt idx) <- E.interp i
     -- let idx = fromInteger idx
     when (idx > (toInteger $ length list)) $ throwError "Insert: index to insert element larger than length of list"
@@ -105,10 +109,10 @@ interp (SSetIdx vec idxs e) = do
                       s@(VList _) -> return s
                       t@(VMutRef a) -> maxUnwrapBorrowedValue t
     h <- use heapL
-    let (Just (OList list)) = M.lookup addr h
+    let (Just (OList list)) = lookupFM addr h
     liftIO $ print addr
     newVal <- E.interp e
-    let newSlot = Prim newVal 
+    let newSlot = newVal 
     let exps = [e | IndexList e <- idxs]
     itXs <- mapM E.interp exps
     unwrapList list itXs newSlot addr
@@ -117,17 +121,17 @@ interp (SAssDeref exp v) = do
     (VMutRef a) <- E.interp exp
     newVal <- E.interp v
     -- v <- getBorrowedValue a
-    modifyBorrowedValue a (Prim newVal) 
+    modifyBorrowedValue a newVal
 
-unwrapList :: [Slot Value] -> [Value] -> Slot Value -> Addr -> Eval ()
+unwrapList :: [Value] -> [Value] -> Value -> Addr -> Eval ()
 unwrapList ls [(VInt i)] elemToSet currentAddr = do
     when (fromInteger i >= length ls) $ throwError $ "Index " ++ show i ++ " larger than the length of the list"
     let valAtIdx = ls !! (fromInteger i)
     h <- use heapL
     case valAtIdx of
-        (Prim v) -> do
+        v -> do
             let newLs = (Prelude.take (fromInteger i) ls) ++ [elemToSet] ++ (Prelude.drop ((fromInteger i)+1) ls)
-            heapL %= M.insert currentAddr (OList newLs)
+            heapL %= bind currentAddr (OList newLs)
             h' <- use heapL
             liftIO $ print h'
 unwrapList ls ((VInt i):idxs) elemToSet currentAddr = do
@@ -136,10 +140,10 @@ unwrapList ls ((VInt i):idxs) elemToSet currentAddr = do
     liftIO $ print valAtIdx
     liftIO $ print ((VInt i):idxs)
     case valAtIdx of
-        Prim (VList addr) -> do
-            let (Just (OList nextList)) = M.lookup addr h
+        (VList addr) -> do
+            let (Just (OList nextList)) = lookupFM addr h
             unwrapList nextList idxs elemToSet addr
-        Prim v -> do
+        v -> do
             throwError "Trying to index non-array"
 
 

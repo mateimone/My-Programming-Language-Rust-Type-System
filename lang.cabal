@@ -38,6 +38,7 @@ library lang
                     , TypeCheck.Expr
                     , TypeCheck.Stmt
                     , TypeCheck.Prog
+                    , FiniteMap
 
     build-depends:    mtl ^>=2.3.1
                     , transformers ^>= 0.6.1.0
