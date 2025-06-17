@@ -219,13 +219,26 @@ replaceObject a o = do
 --       iter (f:fs) = maybe (search fs) return $ M.lookup x f
 --   search (scopes env)
 
+releaseBorrows :: M.Map Addr (Ident, VarInfo, Mutability) -> TC ()
+releaseBorrows frame = mapM_ cancelOneBorrow ls
+  where
+    ls = M.elems frame
+    cancelOneBorrow (borrowedVar, _, borrowKind) = do
+      (VI t c l ib mb, _) <- lookupVarT borrowedVar
+
+      case borrowKind of
+        Imm -> changeVarTIB borrowedVar (ib - 1)
+        Mut -> changeVarTMB borrowedVar (mb - 1)
+
 -- pushes new empty scope
 pushScope :: Env v f -> Env v f
-pushScope env = env { scopes = M.empty : scopes env }
+pushScope env = env { scopes = M.empty : scopes env 
+                    , refStore = M.empty : refStore env}
 
 -- pops last scope
 popScope :: Env v f -> Env v f
-popScope env = env { scopes = tail (scopes env)}
+popScope env = env { scopes = tail (scopes env)
+                   , refStore = tail (refStore env)}
 
 -- pushVarInScope :: Ident -> (Value, Mutability) -> Env v f -> Env v f
 -- pushVarInScope name tup env = env { scopes = }
@@ -242,8 +255,8 @@ withScopeT :: TC a -> TC a
 withScopeT body = do
   modify (\e -> pushScope e)
   r <- body
-  -- topStore <- use (refStoreL . _head)
-  -- topScope <- use ()
+  topStore <- use (refStoreL . _head)
+  releaseBorrows topStore
   modify (\e -> popScope e)
   return r
 

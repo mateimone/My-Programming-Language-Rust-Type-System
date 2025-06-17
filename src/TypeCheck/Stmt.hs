@@ -225,6 +225,9 @@ infer s@(SAss x e) = do
                       ++ ": variable has type " ++ show (ty vi)
                       ++ ", but expression has type " ++ show realUnwrappedType
 
+infer (SArtBlock stmts) = do
+    withScopeT (inferAndPass stmts)
+
 infer w@(SWhile cond stmts) = do
   e <- get
   -- liftIO $ print (scopes e)
@@ -273,6 +276,22 @@ infer s@(SPush prevE@(EIdx v prevI) el) = do
     (TList esTy) <- E.infer prevE
     when (not $ fitsInto eTy esTy) $ throwError $ "Push: List's " ++ show v ++ " elements are of type " ++ show esTy ++ ", but element " ++ show el ++ " has type " ++ show eTy
 
+infer s@(SPush (EDeref ref) el) = do
+  refTy <- case ref of
+             EVar v -> E.peekVarType v
+             _ -> E.infer ref
+
+  esTy <- case refTy of
+    TMutRef (TList ty) -> return ty
+    TRef _ -> throwError $ "Push: cannot modify through immutable reference " ++ show ref
+    _ -> throwError $ "Push: " ++ show ref ++ " is not a reference to a list"
+
+  elTy <- E.infer el
+  checkMoveNotAllowed elTy el
+  unless (fitsInto elTy esTy) $
+    throwError $ "Push: list element type is " ++ show esTy ++
+                 ", but pushed value has type " ++ show elTy
+
 
 infer s@(SInsert (EVar vec) i el) = do
   (VI tp _ live _ _, mut) <- lookupVarT vec
@@ -300,6 +319,25 @@ infer s@(SInsert prevE@(EIdx v prevI) i el) = do
     checkMoveNotAllowed eTy el
     (TList esTy) <- E.infer prevE
     when (not $ fitsInto eTy esTy) $ throwError $ "Push: List's " ++ show v ++ " elements are of type " ++ show esTy ++ ", but element " ++ show el ++ " has type " ++ show eTy
+
+infer s@(SInsert (EDeref ref) idx el) = do
+  idxTy <- E.infer idx
+  when (idxTy /= TInt) $ throwError "Insert: index must be an integer"
+
+  refTy <- case ref of
+             EVar v -> E.peekVarType v
+             _ -> E.infer ref
+
+  esTy <- case refTy of
+    TMutRef (TList ty) -> return ty
+    TRef _ -> throwError $ "Insert: cannot modify through immutable reference " ++ show ref
+    _ -> throwError $ "Insert: " ++ show ref ++ " is not a reference to a list"
+
+  elTy <- E.infer el
+  checkMoveNotAllowed elTy el
+  unless (fitsInto elTy esTy) $
+    throwError $ "Insert: list element type is " ++ show esTy ++
+                 ", but inserted value has type " ++ show elTy
 
 -- error message if not EVar vec
 infer s@(SSetIdx (EVar vec) idxs el) = do
@@ -341,7 +379,9 @@ infer s@(SSetIdx (EVar vec) idxs el) = do
       throwError $ "Set: List's " ++ show vec ++ " elements are of type " ++ show esTy ++ ", but element " ++ show el ++ " has type " ++ show eTy
 
 infer s@(SSetIdx d@(EDeref ref) idxs el) = do
-  refTy <- E.infer ref
+  refTy <- case ref of
+            EVar e -> E.peekVarType e
+            _ -> E.infer ref
   (innerListTy, esTy) <- case refTy of
       TMutRef t@(TList es) -> return (t, es)
       TRef _ -> throwError $ "Set: cannot modify through immutable reference " ++ show ref
@@ -377,7 +417,9 @@ infer (SExp e) = do
     return ()
 
 infer (SAssDeref e v) = do
-  eT <- E.infer e
+  eT <- case e of
+          EVar v -> E.peekVarType v
+          _ -> E.infer e
   newValT <- E.infer v
   case eT of
     (TRef _) -> throwError "Cannot mutate value under immutable reference"

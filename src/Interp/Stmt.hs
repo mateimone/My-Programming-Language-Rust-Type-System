@@ -58,8 +58,8 @@ interp (SAss x e) = -- case x of
       v <- E.interp e
       assignVar x v
 
--- interp (SArtBlock stmts) = do
---     withScope (interpAndPass stmts)
+interp (SArtBlock stmts) = do
+    withScope (interpAndPass stmts)
 
 interp w@(SWhile cond stmts) = do
     e <- get

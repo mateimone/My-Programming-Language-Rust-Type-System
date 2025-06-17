@@ -25,7 +25,7 @@ isCopy :: Type -> Bool
 isCopy TInt = True
 isCopy TBool = True
 isCopy (TRef t) = True
-isCopy (TMutRef t) = True
+isCopy (TMutRef t) = False
 isCopy _ = False
 
 fitsInto :: Type -> Type -> Bool

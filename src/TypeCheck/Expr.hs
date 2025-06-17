@@ -181,15 +181,19 @@ infer (EMutRef exp) = do
             return (TMutRef e)
 
 
-infer (EDeref exp) = do
-    tE <- infer exp
+infer (EDeref e) = do
+    tE <- case e of
+            EVar e -> peekVarType e
+            _ -> infer e
     case tE of
         (TRef rT) 
+            | isRefType rT -> return rT
             | isCopy rT -> return rT
-            | otherwise -> throwError $ "Cannot move " ++ show exp
-        (TMutRef rT)  
+            | otherwise -> throwError $ "Cannot move " ++ show e
+        (TMutRef rT)
+            | isRefType rT -> return rT
             | isCopy rT -> return rT
-            | otherwise -> throwError $ "Cannot move " ++ show exp
+            | otherwise -> throwError $ "Cannot move " ++ show e
         _ -> throwError "Can only dereference a reference"
 
 infer (ELight _) = return TLight
@@ -251,6 +255,7 @@ infer (EIdx rmv@(ERemove vc ri) i) = do
         TList elTy -> return elTy
         _ -> throwError "Indexing works only on lists"
 
+-- used in desugaring
 infer (EIdx r@(ERef ref) i) = do
     tIdx <- infer i
     when (tIdx /= TInt) $ throwError "Array index must be an integer"
@@ -262,6 +267,7 @@ infer (EIdx r@(ERef ref) i) = do
         TList elTy -> return elTy
         _ -> throwError "Indexing works only on lists"
 
+-- used in desugaring
 infer (EIdx r@(EMutRef ref) i) = do
     tIdx <- infer i
     when (tIdx /= TInt) $ throwError "Array index must be an integer"
@@ -276,11 +282,13 @@ infer (EIdx r@(EMutRef ref) i) = do
 infer (EIdx d@(EDeref e) i) = do
     tIdx <- infer i
     when (tIdx /= TInt) $ throwError "Array index must be an integer"
-    tp <- infer d
+    tp <- case e of
+            EVar v -> peekVarType v
+            _ -> infer e
     unwrapped <- maxUnwrapType tp
     case unwrapped of
         TList elTy -> return elTy
-        _ -> throwError ""
+        _ -> throwError "Must index an array!"
     
 
 infer (ERemove (EVar x) i) = do
@@ -317,6 +325,20 @@ infer (ERemove prevE@(EIdx v prevI) i) = do
         TList elTy -> return elTy
         _ -> throwError "Can only remove an element from a list"
 
+infer (ERemove d@(EDeref ref) idx) = do
+  -- index must be int
+  tIdx <- infer idx
+  when (tIdx /= TInt) $ throwError "Remove: array index must be an integer"
+
+  -- type of the reference without moving the variable
+  refTy <- case ref of
+             EVar v -> peekVarType v
+             _ -> infer ref
+
+  case refTy of
+    TMutRef (TList elTy) -> return elTy
+    TRef _ -> throwError $ "Remove: cannot modify through immutable reference " ++ show ref
+    _ -> throwError $ "Remove: " ++ show ref ++ " is not a reference to a list"
 
 -- infer (EPush vec el) = do
 --     (TList esTy) <- infer vec
@@ -400,3 +422,8 @@ peekVarType x = do
   when (live vi == False) $
       throwError $ "Variable " ++ show x ++ " was moved"
   return (ty vi)
+
+isRefType :: Type -> Bool
+isRefType (TRef _) = True
+isRefType (TMutRef _) = True
+isRefType _ = False

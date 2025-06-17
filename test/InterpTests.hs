@@ -40,6 +40,36 @@ test = hspec $ do
             result <- run "return ((2 + 3) * 4)"
             result `shouldBe` Right (VInt 20)
 
+   describe "Interpreter: some function tests that were not tested in other tests" $ do
+      interpTest  ("fun test(mut a: int, mut b: int) -> int = {ass a = 10; ass b = 10; return (a + b)}" ++
+               "return (test(0, 0) == 20)"
+            ) (VBool True)
+
+      interpTest  ("fun test() -> int = {return 7}" ++
+               "return (test())"
+            ) (VInt 7)
+
+   describe "Interpreter: control flow tests" $ do
+      interpTest  ("val mut a = 10;" ++
+               "val mut b = 100;" ++
+               "if (b == 100) {ass a = 15; ass b = 150; val mut a = 150; ass a = 0;}" ++
+               "return ((a == 15) && (b == 150))"
+            ) (VBool True)
+
+      interpTest  ("val mut a = 10;" ++
+               "val mut b = 100;" ++
+               "if (!(b == 100)) {ass a = 180;}" ++
+               "else {ass a = 15; ass b = 150; val mut a = 150; ass a = 0;}" ++
+               "return ((a == 15) && (b == 150))"
+            ) (VBool True)
+
+      interpTest  ("val mut a = 10;" ++
+               "val b = 29;" ++
+               "val mut i = 0;" ++ 
+               "while (i < 10) {ass a = a + 1; ass i = i + 1; val b = 31;}" ++
+               "return ((a == 20) && (b == 29))"
+            ) (VBool True)
+
    describe "Interpreter: Primitive copy tests" $ do
       interpTest  ("val a = 1;" ++
                "val b = a;" ++
@@ -49,17 +79,46 @@ test = hspec $ do
                "return a"
             ) (VInt 1)
 
+   describe "Interpreter: artificial blocks and other scopes tests" $ do
+      interpTest  ("val mut a = vec![Red];" ++
+               "fun test(x: &mut List<Light>) -> &Light = {return (&(x[0]))}" ++
+               "if (1 == 1) {val b = test(&mut a);}" ++
+               "val c = &mut a;" ++
+               "return (&((*c)[0]) == &(Red))"
+            ) (VBool True)
+
+      interpTest  ("val mut a = vec![Red];" ++
+               "if (1 == 1) {val b = &mut a; (*b)[0] = Yellow;}" ++
+               "val c = &mut a;" ++
+               "return (&((*c)[0]) == &(Yellow))"
+            ) (VBool True)
+
+      interpTest  ("val mut a = vec![Red];" ++
+               "val mut i = 0;" ++ 
+               "while (i < 10) {val b = &mut a; (*b)[0] = Yellow; ass i = i + 1;}" ++
+               "val c = &mut a;" ++
+               "return (&((*c)[0]) == &(Yellow))"
+            ) (VBool True)
+
+      interpTest  ("val mut a = vec![Red];" ++
+               "{{val x = &mut a;} val b = &mut a; (*b)[0] = Yellow;}" ++
+               "val c = &mut a;" ++
+               "return (&((*c)[0]) == &(Yellow))"
+            ) (VBool True)
+
    describe "Interpreter: mutable references and dereference tests" $ do
+      interpTest  ("val mut a = vec![1];" ++ 
+               "val b = &mut a;" ++ 
+               "(*b).push(5);" ++   
+               "(*b).insert(0, 9);" ++
+               "val c = (*b).remove(1);" ++ 
+               "return ((c == 1) && ((*b)[0] == 9) && ((*b)[1] == 5))"
+            ) (VBool True)
+
       interpTest  ("val mut a = &(Green);" ++ 
                "val b = &mut a;" ++ 
                "*b = &(Yellow);" ++
                "return (a == &(Yellow))"
-            ) (VBool True)
-
-      interpTest  ("val mut a = &mut(Green);" ++ 
-               "val b = &mut a;" ++ 
-               "*b = &mut (Yellow);" ++
-               "return (a == &mut(Yellow))"
             ) (VBool True)
 
       interpTest  ("val mut a = &mut(vec![1]);" ++ 
@@ -240,6 +299,13 @@ test = hspec $ do
       interpTest  ("val mut list = vec![1,2,3];" ++
                "val a = list[0];" ++ 
                "val b = list[0];" ++
+               "list.insert(1, 3);" ++
+               "return ((list[1] == 3) && (list[0] == 1) && (list[3] == 3))"
+            ) (VBool True)
+
+      interpTest  ("val mut list = vec![1,2,3];" ++
+               "val a = list[0];" ++ 
+               "val b = list[0];" ++
                "list.push(4);" ++
                "return list[3]"
             ) (VInt 4)
@@ -249,6 +315,13 @@ test = hspec $ do
                "val b = list[0];" ++
                "val p = list.remove(1);" ++
                "return list[1]"
+            ) (VInt 3)
+
+      interpTest  ("val mut list = vec![1,2,3];" ++
+               "val a = list[0];" ++ 
+               "val b = list[0];" ++
+               "val p = list.remove(2);" ++
+               "return p"
             ) (VInt 3)
 
       interpTest  ("val mut list = vec![Green];" ++
