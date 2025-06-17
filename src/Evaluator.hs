@@ -63,7 +63,7 @@ evaluateTc (eval, errDesc) input = do
 
 logToFile :: FilePath -> Chan String -> IO ()
 logToFile path ch =
-  withFile path AppendMode (\h ->
+  withFile path WriteMode (\h ->
     forever $ do
       msg <- readChan ch
       hPutStrLn h msg

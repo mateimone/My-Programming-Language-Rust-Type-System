@@ -104,7 +104,7 @@ insertInStore tup = do
               Imm -> "immutably"
               Mut -> "mutably"
 
-  logEval $ "alloc store @" ++ show a ++ ", " ++ mut ++ " borrowed value is " ++ show v ++ " (at runtime)"
+  logEval $ "alloc store @" ++ show a ++ ", " ++ mut ++ " borrowed value is " ++ show v 
   return a
 
 -- Get the borrowed value from the reference store given an address
@@ -132,19 +132,26 @@ maxUnwrapBorrowedValue other = return other
 -- Modify a value under a reference given an address
 modifyBorrowedValue :: Addr -> Value -> Eval ()
 modifyBorrowedValue (Addr addr) newVal = do
-  top <- use (refStoreL . _head)
-  rest <- use (refStoreL . _tail)
-  let (Just (id, val, mut)) = M.lookup (Addr addr) top
-  case mut of 
-    Imm -> throwError $ "MODIFY BORROWED VALUE, THIS SHOULD NOT HAPPEN BECAUSE TYPECHECKER SHOULD FORBID MODIFYING IMMUTABLE AN REFERENCES' VALUE" ++
-                        "Cannot modify value under immutable reference"
-    Mut -> do
-              modify (\env -> env { refStore = ((M.insert) (Addr addr) (id, newVal, mut) top):rest } )
-              scs <- use scopesL
-              foundId <- lookupVarMaybe id
-              case foundId of
-                (Just _) -> assignVar id newVal
-                Nothing -> return ()
+  -- top <- use (refStoreL . _head)
+  -- rest <- use (refStoreL . _tail)
+  refst <- use refStoreL
+  -- let (Just (id, val, mut)) = M.lookup (Addr addr) 
+  let iter [] = throwError $ "Address " ++ show (Addr addr) ++ " cannot be found"
+      iter (r:rs) = 
+        case M.lookup (Addr addr) r of
+          Just (id, val, mut) -> case mut of 
+              Imm -> throwError $ "MODIFY BORROWED VALUE, THIS SHOULD NOT HAPPEN BECAUSE TYPECHECKER SHOULD FORBID MODIFYING IMMUTABLE AN REFERENCES' VALUE" ++
+                                  "Cannot modify value under immutable reference"
+              Mut -> do
+                        modify (\env -> env { refStore = ((M.insert) (Addr addr) (id, newVal, mut) (head refst)):(tail refst) } )
+                        scs <- use scopesL
+                        foundId <- lookupVarMaybe id
+                        case foundId of
+                          (Just _) -> assignVar id newVal
+                          Nothing -> return ()
+          Nothing -> iter rs
+  iter refst
+  
 
 -- Peel all reference layers off of a type
 maxUnwrapType :: Type -> TC Type

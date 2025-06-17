@@ -128,9 +128,13 @@ infer (SFun f params retTy stmts lastE) = do
               inferAndPass stmts
               E.infer lastE
 
-  put outerEnv
-
   checkMoveNotAllowed tBody lastE
+  case tBody of
+    (TRef _) -> throwError "Need lifetime specifier in order to return a reference from function. Lifetime specifiers are not implemented currently."
+    (TMutRef _) -> throwError "Need lifetime specifier in order to return a reference from function. Lifetime specifiers are not implemented currently."
+    _ -> return ()
+
+  put outerEnv
 
   when (tBody /= retTy) $
       throwError $ "return type mismatch in " ++ show f ++
@@ -146,11 +150,19 @@ infer s@(SAss x e) = do
     Imm -> throwError ("cannot assign to immutable " ++ show x)
     Mut -> do
       eTy <- E.infer e
+      when (E.isRefType eTy) $ do
+        lhsDepth <- scopeDepth x                    -- depth of  b
+        rhsDepth <- rhsReferenceDepth e             -- depth of  c / &expr
+        when (rhsDepth < lhsDepth) $                -- inner-to-outer flow
+          throwError $ "reference does not live long enough: borrow created "
+                    ++ "in this block cannot be stored in outer variable "
+                    ++ show x
       realUnwrappedType <- 
         reconcileListLike eTy (ty vi) ("Type mismatch for " ++ show x ++ ": annotation says " ++ show (ty vi) ++ " but expression has type " ++ show eTy)
 
       voidNotAllowed realUnwrappedType e s
       checkMoveNotAllowed realUnwrappedType e
+
       if (fitsInto realUnwrappedType (ty vi)) then do
         let c = isCopy realUnwrappedType
         let vi' = vi { live = True }
@@ -375,7 +387,6 @@ unwrapListTypeUntilEnd :: Type -> Int -> TC (Type, Int)
 unwrapListTypeUntilEnd (TList listT) n = unwrapListTypeUntilEnd listT (n+1)
 unwrapListTypeUntilEnd something n = return (something, n)
 
-
 -- Re-wrap a type in n List layers
 wrapTypeBack :: Type -> Int -> TC Type
 wrapTypeBack t 0 = return t
@@ -393,3 +404,21 @@ inferAndPass stmts = do
     let stmt = head stmts
     infer stmt
     inferAndPass (tail stmts)
+
+-- Computes the depth at which a variable resides
+scopeDepth :: Ident -> TC Int
+scopeDepth x = do
+  frames <- use scopesL
+  let iter _ []       = throwError $ "variable " ++ show x ++ " is not bound"
+      iter i (f:fs)
+        | M.member x f = return i
+        | otherwise = iter (i+1) fs
+  iter 0 frames
+
+-- Computes the depth at which a variable or reference resides. 
+-- If it is a reference, it means it was just created and has depth 0, as well as with any other such expression
+rhsReferenceDepth :: Exp -> TC Int
+rhsReferenceDepth (EVar y) = scopeDepth y
+rhsReferenceDepth (ERef  _) = return 0
+rhsReferenceDepth (EMutRef _) = return 0
+rhsReferenceDepth _ = return 0

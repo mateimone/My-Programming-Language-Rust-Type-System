@@ -219,7 +219,7 @@ interp (EDeref exp) = do
         (VMutRef addr) -> do
             val <- getBorrowedValue addr
             return val
-        _ -> throwError "Can only dereference a reference"
+        -- _ -> throwError "Can only dereference a reference"
 
 -- ERemove - remove the element at a position in a list
 interp (ERemove vec i) = do
@@ -236,27 +236,34 @@ interp (ERemove vec i) = do
 -- Function application
 -- Get function from function store, check arity and number of arguments passed,
 -- interpret arguments, discard whole previous environment for a single scope during execution
--- finally, place old environment back, while updating any mutable references that had
+-- finally, place old environment back, while updating any mutable references that had 
 -- their value changed
 interp (EApp f args) = do
     (Fun paramInfo stmts retE) <- lookupFun f
-
-    when (length paramInfo /= length args) $
-       throwError $ "function " ++ show f ++ " expects " ++ show (length paramInfo) ++ " arguments"
 
     argvs <- mapM Interp.Expr.interp args
     let funScope = M.fromList [ (name,(val,mut)) | ((name,mut),val) <- zip paramInfo argvs]
     outerEnv <- get
     scopesL .= [funScope]
+    refStoreL .= (M.empty:(refStore outerEnv))
+
     result <- do
               interpAndPass stmts
               Interp.Expr.interp retE
     store <- use refStoreL
     h <- use heapL
     nextadr <- use nextAL
-    put outerEnv { refStore = store, heap = h, nextA = nextadr } -- how to make this into a lens?
+
+    newSt <- case store of
+                    top : rest@(fst:t) -> do
+                        let newStore = (M.union top fst):t
+                        put outerEnv { refStore = newStore, heap = h, nextA = nextadr } >> return newStore
+                
+                    [_] -> put outerEnv { refStore = store, heap = h, nextA = nextadr } >> return store
     
-    modifyEnvWithStoreAfterFN store
+    -- put outerEnv { refStore = newStore, heap = h, nextA = nextadr }
+    
+    modifyEnvWithStoreAfterFN newSt
 
     return result
 

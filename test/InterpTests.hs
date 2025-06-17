@@ -81,13 +81,6 @@ test = hspec $ do
 
    describe "Interpreter: artificial blocks and other scopes tests" $ do
       interpTest  ("val mut a = vec![Red];" ++
-               "fun test(x: &mut List<Light>) -> &Light = {return (&(x[0]))}" ++
-               "if (1 == 1) {val b = test(&mut a);}" ++
-               "val c = &mut a;" ++
-               "return (&((*c)[0]) == &(Red))"
-            ) (VBool True)
-
-      interpTest  ("val mut a = vec![Red];" ++
                "if (1 == 1) {val b = &mut a; (*b)[0] = Yellow;}" ++
                "val c = &mut a;" ++
                "return (&((*c)[0]) == &(Yellow))"
@@ -251,17 +244,6 @@ test = hspec $ do
                "val a = &(vec![1,2,3]);" ++ 
                "return test(a)"
             ) (VInt 2)
-
-      interpTest  ("fun test(i: &(&List<&int>)) -> &int = {return i[0]}" ++ 
-               "val a = Green;" ++
-               "val b = &a;" ++
-               "val d = &a;" ++
-               "val e = &(Red);" ++
-               "val o = e;" ++
-               "val nnn = &(&(Green));" ++
-               "return (test(&(&(vec![&(1)]))) == &(1))"
-            ) (VBool True)
-
 
    describe "Interpreter: list tests" $ do
       interpTest  ("val mut list: List<int> = vec![];" ++
