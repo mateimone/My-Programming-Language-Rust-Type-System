@@ -21,12 +21,14 @@ import Control.Monad.Trans.State.Strict
 import Control.Lens
 
 
+-- Prevent moving a non-copy element out of a list
 checkMoveNotAllowed :: Type -> Exp -> TC ()
 checkMoveNotAllowed t e@(EIdx vec i) 
   | isCopy t = return ()
   | otherwise= throwError ("Cannot move element from array in expression " ++ show e)
 checkMoveNotAllowed _ _ = return ()
 
+-- Walk two equally sized lists enforcing the checkMoveNotAllowed rule
 checkMultiple :: [Type] -> [Exp] -> TC ()
 checkMultiple [] [] = return ()
 checkMultiple (t:ts) (e:es) = checkMoveNotAllowed t e >> checkMultiple ts es
@@ -48,9 +50,6 @@ logic (e1, e2) =  do
     t2 <- infer e2
     case (t1, t2) of
         (TBool, TBool) -> return TBool
-        -- (TRef TBool, TBool) -> return TBool
-        -- (TBool, TRef TBool) -> return TBool
-        -- (TRef TBool, TRef TBool) -> return TBool
         _              -> throwError "Boolean operations can only be performed on booleans"
 
 comparison :: (Exp, Exp) -> TC Type
@@ -59,8 +58,6 @@ comparison (e1, e2) =  do
     t2 <- infer e2
     case (t1, t2) of
         (TInt, TInt) -> return TBool
-        -- (TRef TInt, TInt) -> return TBool
-        -- (TInt, TRef TInt) -> return TBool
         (TRef t1, TRef t2) -> do
             let (u1, _) = numberOfRefs t1
             let (u2, _) = numberOfRefs t2
@@ -75,6 +72,7 @@ comparison (e1, e2) =  do
 
 infer :: Exp -> TC Type
 
+-- Unit literal
 infer EVoid = return TUnit
 
 -- Arithmetic
@@ -115,72 +113,51 @@ infer (EGt  e1 e2) = comparison (e1, e2)
 infer (ELeq e1 e2) = comparison (e1, e2)
 infer (EGeq e1 e2) = comparison (e1, e2)
 
--- Control flow
--- infer (EIfElse c iff els) = do
---     cond <- infer c 
---     case cond of
---         TBool -> do
---             tI <- infer iff 
---             tE <- infer els 
---             case (tI, tE) of
---                 (tI, tE) | tI == tE -> return tI
---                 _                   -> throwError "Both branches of an if must have the same type"
---         _     -> throwError "Condition must be a boolean"
-
--- Let bindings
--- infer (ELet x e body) = do
---     t <- infer e 
---     withBoundVarT x (t, Imm) (infer body)
+-- EVar - Variable lookup and move if not non-copy
 infer (EVar x) = do 
     tup <- lookupVarT x
     let vi = fst tup
     let mut = snd tup
     when (live vi == False) $ -- if vi is not live anymore
         throwError $ "Variable " ++ show x ++ "was moved"
-    when ((immutableBorrows vi > 0 || mutableBorrows vi > 0) && copyFlag vi == False) $ 
+    when ((immutableBorrows vi > 0 || mutableBorrows vi > 0) && isCopy (ty vi) == False) $ 
         throwError $ "Cannot move out of " ++ show x ++ " because it is being borrowed by " ++ (show $ immutableBorrows vi) ++ " immutable or " ++
                      (show $ mutableBorrows vi) ++ " mutable variables" 
-    when (copyFlag vi == False) $ do -- move value if variable not primitive
-        -- modify (\env -> env { scopes= M.insert x (vi{ live=False },mut) (head $ scopes env) : (tail $ scopes env)} )
+    when (isCopy (ty vi) == False) $ do -- move value if variable not primitive
         scopesL . _head %= M.insert x (vi{live = False}, mut)
     return (ty vi)
-    
+
+-- ERef - immutable borrow
 infer (ERef exp) = do
-    -- e <- infer exp
-    -- (VI (TList esTy) _ live, mut) <- lookupVarT e
     case exp of
         (EVar var) -> do
-            tup@(VI varTy _ live ib mb, mut) <- lookupVarT var
+            tup@(VI varTy live ib mb, mut) <- lookupVarT var
             when (not live) $ throwError $ "Variable " ++ show var ++ " was moved"
             when (mb /= 0) $ throwError "Cannot have immutable references while also having mutable references"
             let vi = fst tup
-            -- modify (\env -> env { scopes = M.insert var (vi{ immutableBorrows = (ib+1) },mut) (head $ scopes env) : (tail $ scopes env) } )
             scopesL . _head %= M.insert var (vi{immutableBorrows = ib+1}, mut)
-            -- _ <- insertInStoreT (var, fst v)
             return (TRef varTy)
         otherVal -> do
-            -- let (tempVarString, g) = randomString (mkStdGen 42)
-            -- a@(Addr refAddr) <- insertInStore (Ident tempVarString, Prim e)
             e <- infer exp
             return (TRef e)
 
+-- EMutRef - mutable borrow
 infer (EMutRef exp) = do
     case exp of
         (EVar var) -> do
-            tup@(VI varTy _ live ib mb, mut) <- lookupVarT var
+            tup@(VI varTy live ib mb, mut) <- lookupVarT var
             when (not live) $ throwError $ "Variable " ++ show var ++ " was moved"
             when (mut == Imm) $ throwError $ "Cannot borrow " ++ show var ++ " as mutable, as it is not declared as mutable"
             when (ib /= 0) $ throwError $ "Cannot borrow " ++ show var ++ " as mutable because it is also borrowed as immutable"
             when (mb /= 0) $ throwError $ "Cannot borrow " ++ show var ++ " as mutable more than once at a time"
             let vi = fst tup
-            -- modify (\env -> env { scopes = M.insert var (vi{ mutableBorrows = (mb+1) }, mut) (head $ scopes env) : (tail $ scopes env) })
             scopesL . _head %= M.insert var (vi{mutableBorrows = mb+1}, mut)
             return (TMutRef varTy)
         otherVal -> do
             e <- infer exp
             return (TMutRef e)
 
-
+-- EDeref - access the value under a reference
 infer (EDeref e) = do
     tE <- case e of
             EVar e -> peekVarType e
@@ -196,13 +173,15 @@ infer (EDeref e) = do
             | otherwise -> throwError $ "Cannot move " ++ show e
         _ -> throwError "Can only dereference a reference"
 
+-- ELight - light literal; can take 3 values: Red, Yellow, Green
 infer (ELight _) = return TLight
 
+-- EVec - list literal; vec![...]
 infer (EVec es) = do
     ets <- mapM infer es
     checkMultiple ets es
     case ets of
-        [] -> return $ TList TUnknown -- throwError "Empty vector literal needs type annotation"
+        [] -> return $ TList TUnknown
         t:ts -> 
             if (all (\ty -> (ty == t) || (fst (unwrapListTypeUntilEndNM ty 0) == TUnknown) || (fst (unwrapListTypeUntilEndNM ty 0) == TUnknown)) ts) 
                 then return (TList t)
@@ -214,8 +193,11 @@ infer (EVec es) = do
         isMutTRef (TMutRef _) = True
         isMutTRef _ = False
 
+-- List indexing cases --
+
+-- Index a variable
 infer (EIdx (EVar x) i) = do
-    (VI tVec _ live ib mb, mut) <- lookupVarT x
+    (VI tVec live ib mb, mut) <- lookupVarT x
     (TList elTy) <- case tVec of
                       s@(TList eT) -> do
                                         case isCopy eT of
@@ -229,24 +211,23 @@ infer (EIdx (EVar x) i) = do
     when (tIdx /= TInt) $ throwError "Array index must be an integer"
     return elTy
 
+-- Index a vector
 infer (EIdx v@(EVec es) i) = do
     tIdx <- infer i
     when (tIdx /= TInt) $ throwError "Array index must be an integer"
     (TList eTy) <- infer v
-    -- if isCopy eTy then return eTy
-    -- else throwError "Cannot move non-copyable type from list"
     return eTy
 
+-- Index another indexed value
 infer (EIdx prevE@(EIdx v prevI) i) = do
     tIdx <- infer i
     when (tIdx /= TInt) $ throwError "Array index must be an integer"
     tp <- infer prevE
     case tp of
         TList elTy -> return elTy
-            -- | isCopy elTy -> return elTy
-            -- | otherwise -> throwError "Cannot move non-copyable type from list"
         _ -> throwError "Indexing works only on lists"
 
+-- Index a removed element that is an array
 infer (EIdx rmv@(ERemove vc ri) i) = do
     tIdx <- infer i
     when (tIdx /= TInt) $ throwError "Array index must be an integer"
@@ -255,6 +236,7 @@ infer (EIdx rmv@(ERemove vc ri) i) = do
         TList elTy -> return elTy
         _ -> throwError "Indexing works only on lists"
 
+-- Index an immutable reference directly, without having to dereference it
 -- used in desugaring
 infer (EIdx r@(ERef ref) i) = do
     tIdx <- infer i
@@ -267,6 +249,7 @@ infer (EIdx r@(ERef ref) i) = do
         TList elTy -> return elTy
         _ -> throwError "Indexing works only on lists"
 
+-- Index a mutable reference directly, without having to dereference it
 -- used in desugaring
 infer (EIdx r@(EMutRef ref) i) = do
     tIdx <- infer i
@@ -279,6 +262,7 @@ infer (EIdx r@(EMutRef ref) i) = do
         TList elTy -> return elTy
         _ -> throwError "Indexing works only on lists"
 
+-- Index a dereferenced value
 infer (EIdx d@(EDeref e) i) = do
     tIdx <- infer i
     when (tIdx /= TInt) $ throwError "Array index must be an integer"
@@ -290,19 +274,21 @@ infer (EIdx d@(EDeref e) i) = do
         TList elTy -> return elTy
         _ -> throwError "Must index an array!"
     
+-- Removing an element from a list cases --
 
+-- Call remove on a variable
 infer (ERemove (EVar x) i) = do
     tVec <- peekVarType x
     (TList elTy) <- case tVec of
                       s@(TList _) -> return s
                       (TRef t) -> throwError $ "Set: Cannot borrow " ++ show x ++ " as mutable, as it is behind a & reference" -- SYNTACTICAL SUGAR
-                      -- (TMutRef t) -> if mut == Imm then throwError $ "Set: Cannot borrow " ++ show vec ++ " as mutable, as it is behind a & reference"
-                      --             else maxUnwrapType t
+                      (TMutRef t) -> maxUnwrapType t
                       _ -> throwError "The remove function works only on lists"
     tIdx <- infer i
     when (tIdx /= TInt) $ throwError "Remove: Array index must be an integer"
     return elTy
 
+-- Call remove on a removed element
 infer (ERemove rmv@(ERemove vc ri) i) = do
     tIdx <- infer i
     when (tIdx /= TInt) $ throwError "Array index must be an integer"
@@ -311,12 +297,7 @@ infer (ERemove rmv@(ERemove vc ri) i) = do
         TList elTy -> return elTy
         _ -> throwError  "Indexing works only on lists"
 
--- infer (ERemove v@(EVec es) i) = do
---     tIdx <- infer i
---     when (tIdx /= TInt) $ throwError "Array index must be an integer"
---     (TList eTy) <- infer v
---     return eTy
-
+-- Call remove on an indexed element
 infer (ERemove prevE@(EIdx v prevI) i) = do
     tIdx <- infer i
     when (tIdx /= TInt) $ throwError "Array index must be an integer"
@@ -325,8 +306,8 @@ infer (ERemove prevE@(EIdx v prevI) i) = do
         TList elTy -> return elTy
         _ -> throwError "Can only remove an element from a list"
 
+-- Call remove on a dereferenced element
 infer (ERemove d@(EDeref ref) idx) = do
-  -- index must be int
   tIdx <- infer idx
   when (tIdx /= TInt) $ throwError "Remove: array index must be an integer"
 
@@ -340,17 +321,9 @@ infer (ERemove d@(EDeref ref) idx) = do
     TRef _ -> throwError $ "Remove: cannot modify through immutable reference " ++ show ref
     _ -> throwError $ "Remove: " ++ show ref ++ " is not a reference to a list"
 
--- infer (EPush vec el) = do
---     (TList esTy) <- infer vec
---     eTy <- infer el
-    
---     if eTy == esTy then return TUnit 
---     else throwError $ "Push: List's " ++ show vec ++ " elements are of type " ++ show esTy ++ ", but " ++ show el ++ " is of type " ++ show eTy
-
--- Functions
+-- Function application
 infer (EApp f args) = do
     (TFun paramsT_Muts retTy) <- lookupFunT f
-    -- done by both the typechecker and the interpreter
     when (length paramsT_Muts /= length args) $
        throwError $ "function " ++ show f ++ " expects " ++ show (length paramsT_Muts) ++ " arguments"
     
@@ -360,42 +333,21 @@ infer (EApp f args) = do
         let expectedT = fst expected
         case (expectedT, arg) of
             (TRef _, EVar var) -> do
-                tup@(VI ttt _ live ib mb, mut) <- lookupVarT var
+                tup@(VI ttt live ib mb, mut) <- lookupVarT var
                 when (mb /= 0) $ throwError $ "Cannot borrow " ++ show var ++ " as immutable as it is also borrowed as mutable"
                 let vi = fst tup
                 changeVarTIB var (ib+1)
             (TMutRef _, EVar var) -> do
-                tup@(VI ttt _ live ib mb, mut) <- lookupVarT var
+                tup@(VI ttt live ib mb, mut) <- lookupVarT var
                 when (mb /= 0) $ throwError $ "Cannot borrow " ++ show var ++ " as mutable more than once"
                 when (ib /= 0) $ throwError $ "Cannot borrow " ++ show var ++ " as mutable as it is also borrowed as immutable"
                 let vi = fst tup
                 changeVarTMB var (mb+1)
             (_, _) -> return ()
-        -- let realT = case actualT of
-        --         TList TUnknown -> expectedT
-        --         other -> other
 
-  -- for nested arrays that might be empty
+        -- for nested arrays that might be empty
         realUnwrappedType <- 
-            case (actualT, expectedT) of
-                (TList rt, TList tty) -> do
-                    tup <- unwrapListTypeUntilEnd (TList rt) 0
-                    let realUnwrapped = fst tup
-                    let numberOfUnwrapsReal = snd tup
-
-                    tup2 <- unwrapListTypeUntilEnd (TList tty) 0
-                    let expectedUnwrapped = fst tup2
-                    let numberOfUnwrapsExpected = snd tup2
-                    if (numberOfUnwrapsReal == numberOfUnwrapsExpected) then
-                        case realUnwrapped of 
-                            TUnknown -> wrapTypeBack expectedUnwrapped numberOfUnwrapsReal
-                            other -> wrapTypeBack other numberOfUnwrapsReal
-                    else 
-                        throwError $ "Type mismatch in call to " ++ show f ++
-                                    ": expected " ++ show expected ++
-                                    " but got " ++ show actualT
-                                    
-                (a, e) -> return a
+            reconcileListLike actualT expectedT ("Type mismatch in call to " ++ show f ++ ": expected " ++ show expected ++ " but got " ++ show actualT)
         checkMoveNotAllowed realUnwrappedType arg
         when (not (fitsInto realUnwrappedType expectedT)) $ throwError $ 
             "type mismatch in call to " ++ show f ++
@@ -404,18 +356,47 @@ infer (EApp f args) = do
 
     return retTy
 
+-- For cases where an empty list is provided
+-- Given the type that an expression produced and the type we expected,
+-- try to "match" nested list layers. If both are lists with the same depth, propagate the inner
+-- element type, replacing the unknown type with the concrete expectation.
+-- If depths differ, raise the supplied error message.
+-- If not a list type is expected, simply return the actual type. 
+reconcileListLike :: Type -> Type -> String -> TC Type
+reconcileListLike eTy esTy error =
+  case (eTy, esTy) of
+    (TList rt, TList tty) -> do
+                    tup <- unwrapListTypeUntilEnd (TList rt) 0
+                    let realUnwrapped = fst tup
+                    let numberOfUnwrapsReal = snd tup
+
+                    tup2 <- unwrapListTypeUntilEnd (TList tty) 0
+                    let expectedUnwrapped = fst tup2
+                    let numberOfUnwrapsExpected = snd tup2
+                    if (numberOfUnwrapsReal == numberOfUnwrapsExpected) then
+                      case realUnwrapped of
+                        TUnknown -> wrapTypeBack expectedUnwrapped numberOfUnwrapsReal
+                        other -> wrapTypeBack other numberOfUnwrapsReal
+                    else 
+                      throwError error
+    (a, e) -> return a
+
+-- Peel nested List layers until something that isn’t a list, counting how many we removed.
 unwrapListTypeUntilEnd :: Type -> Int -> TC (Type, Int)
 unwrapListTypeUntilEnd (TList listT) n = unwrapListTypeUntilEnd listT (n+1)
 unwrapListTypeUntilEnd something n = return (something, n)
 
+-- Peel nested List layers until something that isn’t a list, counting how many we removed, outside of a monadic context.
 unwrapListTypeUntilEndNM :: Type -> Int -> (Type, Int)
 unwrapListTypeUntilEndNM (TList listT) n = unwrapListTypeUntilEndNM listT (n+1)
 unwrapListTypeUntilEndNM something n = (something, n)
 
+-- Re-wrap a type in n List layers
 wrapTypeBack :: Type -> Int -> TC Type
 wrapTypeBack t 0 = return t
 wrapTypeBack t n = wrapTypeBack (TList t) (n-1)
 
+-- Peek the type of a variable without moving it
 peekVarType :: Ident -> TC Type
 peekVarType x = do
   (vi, _) <- lookupVarT x
@@ -423,6 +404,7 @@ peekVarType x = do
       throwError $ "Variable " ++ show x ++ " was moved"
   return (ty vi)
 
+-- Checks whether the given type is a reference
 isRefType :: Type -> Bool
 isRefType (TRef _) = True
 isRefType (TMutRef _) = True

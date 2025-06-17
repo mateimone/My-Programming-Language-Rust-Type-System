@@ -39,16 +39,6 @@ logic (e1, e2) f =  do
     v2 <- Interp.Expr.interp e2
     case (v1, v2) of
         (VBool b1, VBool b2) -> return $ VBool (f b1 b2)
-        -- (VRef a, VBool b2) -> do 
-        --     (Prim (VBool b1)) <- getBorrowedValue a
-        --     return $ VBool (f b1 b2)
-        -- (VBool b1, VRef a) -> do 
-        --     (Prim (VBool b2)) <- getBorrowedValue a
-        --     return $ VBool (f b1 b2)
-        -- (VRef a, VRef b) -> do
-        --     (Prim (VBool b1)) <- getBorrowedValue a
-        --     (Prim (VBool b2)) <- getBorrowedValue b
-        --     return $ VBool (f b1 b2)
         _                    -> throwError "Boolean operations can only be performed on booleans"
 
 -- EXPRESSION INTERPRETER ------------------------------------------------------------
@@ -162,58 +152,28 @@ interp (EGeq e1 e2) = do
             return $ VBool (v1 >= v2)
         _                  -> throwError "Cannot compare different types"
 
--- Control flow
--- interp (EIfElse c iff els) = do
---     cond <- interp c 
---     case cond of
---         VBool True  -> interp iff
---         VBool False -> interp els
---         _           -> throwError "Condition must be a boolean"
-
--- Let bindings
--- interp (ELet x e body) = do
---     arg <- Interp.Expr.interp e
---     withBoundVar x (arg, Imm) (Interp.Expr.interp body)
+-- EVar - Variable lookup and move if not non-copy
 interp (EVar x) = fst <$> readPrim x
 
--- Functions
--- interp (EApp f args) = do
---     (Fun paramInfo stmts retE, _) <- lookupFun f
-
---     when (length paramInfo /= length args) $
---        throwError $ "function " ++ show f ++ " expects " ++ show (length paramInfo) ++ " arguments"
-
---     argvs <- mapM Interp.Expr.interp args
---     let funScope = M.fromList [ (name,(Prim val,mut)) | ((name,mut),val) <- zip paramInfo argvs]
---     outerEnv <- get
---     put outerEnv { scopes = [funScope] }
---     result <- do
---               interpAndPass stmts
---               Interp.Expr.interp retE
---     put outerEnv
---     return result
-
+-- ELight - light literal; can take 3 values: Red, Yellow, Green
 interp (ELight color) = return (VLight color)
 
+-- EVec - list literal; vec![...]
 interp (EVec es) = do
     eis <- mapM Interp.Expr.interp es
     addr <- insertInHeap (OList eis)
     h <- use heapL
-    liftIO $ print (show h)
     return (VList addr)
 
+-- Index a variable
 interp (EIdx vec i) = do
     o <- Interp.Expr.interp vec
-    -- liftIO $ print (show o)
     (VList addr) <- case o of
                         (VList a) -> return (VList a)
                         r@(VRef a) -> maxUnwrapBorrowedValue r
                         r@(VMutRef a) -> maxUnwrapBorrowedValue r
     list@(OList elems) <- readObject addr
     (VInt idx) <- Interp.Expr.interp i
-    -- idx <- case eI of
-    --     (VInt idx) -> return $ fromInteger idx
-    --     _ -> throwError $ show eI ++ " is not an integer for accessing array " ++ show elems
     if (length elems) <= fromInteger idx then 
         throwError $ "Index " ++ show i ++ " is out of bounds for " ++ show list 
     else (let el = elems !! (fromInteger idx)
@@ -224,9 +184,9 @@ interp (EIdx vec i) = do
             x -> return x
         )
 
+-- ERef - immutable borrow
 interp (ERef exp) = do
     e <- Interp.Expr.interp exp
-    
     case exp of
         (EVar var) -> do
             a@(Addr refAddr) <- insertInStore (var, e, Imm)
@@ -236,6 +196,7 @@ interp (ERef exp) = do
             a@(Addr refAddr) <- insertInStore (Ident tempVarString, e, Imm) 
             return (VRef a)
 
+-- EMutRef - mutable borrow
 interp (EMutRef exp) = do
     e <- Interp.Expr.interp exp
 
@@ -248,11 +209,11 @@ interp (EMutRef exp) = do
             a@(Addr refAddr) <- insertInStore (Ident tempVarString, e, Mut)
             return (VMutRef a)
 
+-- EDeref - access the value under a reference
 interp (EDeref exp) = do
     e <- Interp.Expr.interp exp
     case e of
         (VRef addr) -> do
-            -- (VRef addr) <- Interp.Expr.interp a
             val <- getBorrowedValue addr
             return val
         (VMutRef addr) -> do
@@ -260,27 +221,7 @@ interp (EDeref exp) = do
             return val
         _ -> throwError "Can only dereference a reference"
 
--- What do about Refs ????
--- interp (EPush vec el) = do
---     (VList addr) <- Interp.Expr.interp vec
---     h <- gets heap
---     let (Just (OList list)) = M.lookup addr h
---     el' <- Interp.Expr.interp el
---     let newSlot = Prim el'
---     let newList = list ++ [newSlot]
---     replaceObject addr (OList newList) 
---     return VUnit
-
--- interp (EInsert vec idx el) = do
---     (VList addr) <- Interp.Expr.interp vec
---     h <- gets heap
---     let (Just (OList list)) = M.lookup addr h
---     el' <- Interp.Expr.interp el
---     let newSlot = Prim el'
---     let newList = insertAt newSlot idx list
---     replaceObject addr (OList newList)
---     return VUnit
-
+-- ERemove - remove the element at a position in a list
 interp (ERemove vec i) = do
     (VList addr) <- Interp.Expr.interp vec
     h <- use heapL
@@ -292,6 +233,11 @@ interp (ERemove vec i) = do
     case e of
         val -> return val
 
+-- Function application
+-- Get function from function store, check arity and number of arguments passed,
+-- interpret arguments, discard whole previous environment for a single scope during execution
+-- finally, place old environment back, while updating any mutable references that had
+-- their value changed
 interp (EApp f args) = do
     (Fun paramInfo stmts retE) <- lookupFun f
 
@@ -301,7 +247,6 @@ interp (EApp f args) = do
     argvs <- mapM Interp.Expr.interp args
     let funScope = M.fromList [ (name,(val,mut)) | ((name,mut),val) <- zip paramInfo argvs]
     outerEnv <- get
-    -- put outerEnv { scopes = [funScope] }
     scopesL .= [funScope]
     result <- do
               interpAndPass stmts
@@ -315,14 +260,20 @@ interp (EApp f args) = do
 
     return result
 
+-- This function takes a list of references and updates the variable environment
+-- shall any variable that had a mutable reference had the value under the reference changed
 modifyEnvWithStoreAfterFN :: [M.Map Addr (Ident, Value, Mutability)] -> Eval ()
 modifyEnvWithStoreAfterFN store = do
     mapM_ modifyEnvWithAStore store
-    
+
+-- This function updates a single variable that had a mutable reference for which
+-- the value under the reference was changed
 modifyEnvWithAStore :: M.Map Addr (Ident, Value, Mutability) -> Eval ()
 modifyEnvWithAStore store = do
     mapM_ update (M.toList store)
 
+-- If the referenced variable doesn't exist, ignore it, it was a reference to a value, not a variable
+-- If the referenced variable does exist, update its value with the one in the reference store
 update :: (Addr, (Ident, Value, Mutability)) -> Eval ()
 update (addr, tup@(_, _, Imm)) = return ()
 update (addr, tup@(name, newVal, Mut)) = do
@@ -335,6 +286,7 @@ update (addr, tup@(name, newVal, Mut)) = do
             | oldVal == newVal -> return ()
             | otherwise -> assignVar name newVal
 
+-- Insert an element at a position in a list
 insertAt :: a -> Integer -> [a] -> [a]
 insertAt newElement 0 as = newElement:as
 insertAt newElement i (a:as) = a : insertAt newElement (i - 1) as
@@ -347,6 +299,7 @@ removeElementAt n (a:as) =
     let (x, xs) = removeElementAt (n-1) as
     in (x, (a:(dropEnd (length as + 1) xs)) ++ xs)
 
+-- Sequentially interpret a list of statements
 interpAndPass :: [Stmt] -> Eval ()
 interpAndPass [] = return ()
 interpAndPass stmts = do
