@@ -30,7 +30,6 @@ infer (Program stmts exp) = do
     eTy <- E.infer exp
     checkMoveNotAllowed eTy exp
     s <- gets scopes
-    liftIO $ print s
     return eTy
   where
     prepare :: [Stmt] -> TC ()

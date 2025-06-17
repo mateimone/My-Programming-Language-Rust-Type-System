@@ -39,7 +39,7 @@ _. Type1 ::= Type2;
 _. Type  ::= Type1;
 
 -- STATEMENTS ---------------------------------------------------------
-SAss.     Stmt ::= "ass" Ident "=" Exp ";" ;
+SAss.     Stmt ::= "set" Ident "=" Exp ";" ;
 SLet.     Stmt ::= "val" Ident "=" Exp ";" ;
 SLetAnn.  Stmt ::= "val" Ident ":" Type "=" Exp ";" ;
 SLetM.    Stmt ::= "val" "mut" Ident "=" Exp ";" ; 

@@ -119,7 +119,6 @@ interp (SSetIdx vec idxs e) = do
                       t@(VMutRef a) -> maxUnwrapBorrowedValue t
     h <- use heapL
     let (Just (OList list)) = lookupFM addr h
-    liftIO $ print addr
     newVal <- E.interp e
     let newSlot = newVal 
     let exps = [e | IndexList e <- idxs]

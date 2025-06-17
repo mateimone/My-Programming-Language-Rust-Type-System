@@ -18,6 +18,7 @@ import Value
 import Control.Concurrent
 import Control.Concurrent.Chan
 import Control.Monad
+import System.IO
 
 type Result a = Either String a
 
@@ -36,7 +37,7 @@ evaluateEv (eval, errDesc) input = do
         Bad err -> return (Left (errDesc ++ " error: " ++ err))
         Ok prog' -> do
             ch <- newChan
-            _ <- forkIO $ forever (readChan ch >>= putStrLn)
+            _ <- forkIO $ logToFile "runtime.log" ch
             let startEnv = empty ch
             resEnv <- runEval startEnv (eval prog')
             let res = fmap fst resEnv
@@ -52,7 +53,6 @@ evaluateTc (eval, errDesc) input = do
         Bad err -> return (Left (errDesc ++ " error: " ++ err))
         Ok prog' -> do
             ch <- newChan
-            _ <- forkIO $ forever (readChan ch >>= putStrLn)
             let startEnv = empty ch
             resEnv <- runTC startEnv (eval prog')
             let res = fmap fst resEnv
@@ -60,3 +60,12 @@ evaluateTc (eval, errDesc) input = do
                         Left err' -> throw (errDesc ++ " error: " ++ err')
                         right -> right
             return c
+
+logToFile :: FilePath -> Chan String -> IO ()
+logToFile path ch =
+  withFile path AppendMode (\h ->
+    forever $ do
+      msg <- readChan ch
+      hPutStrLn h msg
+      hFlush h
+  )

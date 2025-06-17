@@ -242,9 +242,7 @@ infer (EIdx r@(ERef ref) i) = do
     tIdx <- infer i
     when (tIdx /= TInt) $ throwError "Array index must be an integer"
     tp <- infer r
-    liftIO $ print tp
     unwrapped <- maxUnwrapType tp
-    liftIO $ print unwrapped
     case unwrapped of 
         TList elTy -> return elTy
         _ -> throwError "Indexing works only on lists"
@@ -255,9 +253,7 @@ infer (EIdx r@(EMutRef ref) i) = do
     tIdx <- infer i
     when (tIdx /= TInt) $ throwError "Array index must be an integer"
     tp <- infer r
-    liftIO $ print tp
     unwrapped <- maxUnwrapType tp
-    liftIO $ print unwrapped
     case unwrapped of 
         TList elTy -> return elTy
         _ -> throwError "Indexing works only on lists"

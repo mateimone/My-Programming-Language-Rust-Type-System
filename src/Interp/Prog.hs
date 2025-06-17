@@ -21,8 +21,6 @@ interp (Program stmts exp) = do
     e <- E.interp exp
     s <- gets scopes
     rs <- gets refStore
-    liftIO $ print s
-    liftIO $ print rs
     return e
   where
     prepare :: [Stmt] -> Eval ()

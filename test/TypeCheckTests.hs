@@ -22,7 +22,6 @@ tcErrorTest input =
 test :: IO ()
 test = hspec $ do
    describe "typeChecker: good weather tests" $ do
-      -- tcTest "let x = 2 in x + 3" TInt
       tcTest "return (True && False)" TBool
 
       tcTest "val x = 3; return (x * x)" TInt
@@ -30,12 +29,11 @@ test = hspec $ do
       tcTest "fun isZero (x : int) -> bool = {return x == 0} return isZero(42)" TBool
 
    describe "typeChecker: bad weather tests" $ do
-      -- tcErrorTest "let x = 2 in x + True"
       tcErrorTest "True && 3"
       tcErrorTest "fun increment (x : int) -> int = {return x + 1} val b = True; return increment(b)"
 
    describe "typeChecker: some function tests that were not tested in other tests" $ do
-      tcTest  ("fun test(mut a: int, mut b: int) -> int = {ass a = 10; ass b = 10; return (a + b)}" ++
+      tcTest  ("fun test(mut a: int, mut b: int) -> int = {set a = 10; set b = 10; return (a + b)}" ++
                "return (test(0, 0) == 20)"
             ) TBool
 
@@ -46,21 +44,21 @@ test = hspec $ do
    describe "typeChecker: control flow tests" $ do
       tcTest  ("val mut a = 10;" ++
                "val mut b = 100;" ++
-               "if (b == 100) {ass a = 15; ass b = 150; val mut a = 150; ass a = 0;}" ++
+               "if (b == 100) {set a = 15; set b = 150; val mut a = 150; set a = 0;}" ++
                "return ((a == 15) && (b == 150))"
             ) TBool
 
       tcTest  ("val mut a = 10;" ++
                "val mut b = 100;" ++
-               "if (!(b == 100)) {ass a = 180;}" ++
-               "else {ass a = 15; ass b = 150; val mut a = 150; ass a = 0;}" ++
+               "if (!(b == 100)) {set a = 180;}" ++
+               "else {set a = 15; set b = 150; val mut a = 150; set a = 0;}" ++
                "return ((a == 15) && (b == 150))"
             ) TBool
 
       tcTest  ("val mut a = 10;" ++
                "val b = 29;" ++
                "val mut i = 0;" ++ 
-               "while (i < 10) {ass a = a + 1; ass i = i + 1; val b = 31;}" ++
+               "while (i < 10) {set a = a + 1; set i = i + 1; val b = 31;}" ++
                "return ((a == 20) && (b == 29))"
             ) TBool
 
@@ -131,7 +129,7 @@ test = hspec $ do
 
       tcTest  ("val mut a = vec![Red];" ++
                "val mut i = 0;" ++ 
-               "while (i < 10) {val b = &mut a; (*b)[0] = Yellow; ass i = i + 1;}" ++
+               "while (i < 10) {val b = &mut a; (*b)[0] = Yellow; set i = i + 1;}" ++
                "val c = &mut a;" ++
                "return (&((*c)[0]) == &(Yellow))"
             ) TBool
@@ -205,7 +203,6 @@ test = hspec $ do
                "val b = &mut a;" ++ 
                "*b = (vec![Red]);" ++
                "return (&((*b)[0]))"
-               -- "return 0"
             ) (TRef TLight)
 
       tcTest  ("fun test(x: &mut (&mut List<&int>)) -> int = { return (*(x[0])) }" ++
@@ -233,14 +230,14 @@ test = hspec $ do
                "fun test(x: &mut Light) -> unit = { *x = (Red); return void }" ++
                "test(b);" ++
                "return 0"
-            ) TInt -- can't really test this yet
+            ) TInt
 
       tcTest  ("val mut a = vec![Green, Red];" ++
                "val b = &mut a;" ++
                "fun test(x: &mut List<Light>) -> unit = { (*x)[0] = Red; return void }" ++
                "test(b);" ++
                "return 0"
-            ) TInt -- can't really test this yet
+            ) TInt
 
       tcErrorTest ("val mut a = vec![Yellow];" ++ 
                "val mut b = &mut a;" ++ 
@@ -274,8 +271,6 @@ test = hspec $ do
       
 
    describe "typeChecker: immutable reference tests" $ do
-      -- need to test dereferencing!!!
-
       tcTest  ("val a = Green;" ++ 
                "val b = &a;" ++ 
                "val c = &a;" ++ 
@@ -378,7 +373,7 @@ test = hspec $ do
 
    describe "typeChecker: list tests" $ do
       tcTest  ("val mut list: List<List<List<int>>> = vec![vec![vec![]]];" ++
-               "ass list = vec![vec![vec![]]];" ++
+               "set list = vec![vec![vec![]]];" ++
                "return 0"
             ) TInt
 
@@ -610,8 +605,8 @@ test = hspec $ do
 
       tcTest  ("val mut lamp1 = Green;" ++ 
                "val mut lamp2 = Yellow;" ++
-               "ass lamp2 = lamp1;" ++
-               "ass lamp1 = Red;" ++
+               "set lamp2 = lamp1;" ++
+               "set lamp1 = Red;" ++
                "fun test(l:Light) -> Light = {return Green}" ++
                "val u1 = test(lamp1);" ++ 
                "val u2 = test(lamp2);" ++ 
@@ -620,7 +615,7 @@ test = hspec $ do
 
       tcTest  ("val mut lamp1 = Green;" ++ 
                "val mut lamp2 = lamp1;" ++
-               "ass lamp1 = Red;" ++
+               "set lamp1 = Red;" ++
                "fun test(l:Light) -> Light = {return Green}" ++
                "val u1 = test(lamp1);" ++ 
                "val u2 = test(lamp2);" ++ 
@@ -639,7 +634,7 @@ test = hspec $ do
       tcTest  ("val lamp1 = Green;" ++ 
                "val mut lamp2 = lamp1;" ++
                "val lamp1 = Yellow;" ++ 
-               "ass lamp2 = lamp1;" ++
+               "set lamp2 = lamp1;" ++
                "return lamp2"
             ) TLight
 
@@ -672,8 +667,8 @@ test = hspec $ do
 
       tcTest  ("val mut lamp1 = Green;" ++ 
                "val mut lamp2 = Yellow;" ++
-               "ass lamp2 = lamp1;" ++
-               "ass lamp1 = Red;" ++
+               "set lamp2 = lamp1;" ++
+               "set lamp1 = Red;" ++
                "fun test(l:Light) -> Light = {return Green}" ++
                "val u1 = test(lamp1);" ++ 
                "val u2 = test(lamp2);" ++ 
@@ -682,7 +677,7 @@ test = hspec $ do
 
       tcTest  ("val mut lamp1 = Green;" ++ 
                "val mut lamp2 = lamp1;" ++
-               "ass lamp1 = Red;" ++
+               "set lamp1 = Red;" ++
                "fun test(l:Light) -> Light = {return Green}" ++
                "val u1 = test(lamp1);" ++ 
                "val u2 = test(lamp2);" ++ 
@@ -701,13 +696,13 @@ test = hspec $ do
       tcTest  ("val lamp1 = Green;" ++ 
                "val mut lamp2 = lamp1;" ++
                "val lamp1 = Yellow;" ++ 
-               "ass lamp2 = lamp1;" ++
+               "set lamp2 = lamp1;" ++
                "return lamp2"
             ) TLight
 
       tcTest  ("val lamp1 = Red;" ++ 
                "val mut lamp2 = lamp1;" ++
-               "ass lamp2 = Green;" ++ 
+               "set lamp2 = Green;" ++ 
                "val lamp3 = lamp2;" ++ 
                "return lamp3"
             ) TLight

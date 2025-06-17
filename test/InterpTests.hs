@@ -41,7 +41,7 @@ test = hspec $ do
             result `shouldBe` Right (VInt 20)
 
    describe "Interpreter: some function tests that were not tested in other tests" $ do
-      interpTest  ("fun test(mut a: int, mut b: int) -> int = {ass a = 10; ass b = 10; return (a + b)}" ++
+      interpTest  ("fun test(mut a: int, mut b: int) -> int = {set a = 10; set b = 10; return (a + b)}" ++
                "return (test(0, 0) == 20)"
             ) (VBool True)
 
@@ -52,21 +52,21 @@ test = hspec $ do
    describe "Interpreter: control flow tests" $ do
       interpTest  ("val mut a = 10;" ++
                "val mut b = 100;" ++
-               "if (b == 100) {ass a = 15; ass b = 150; val mut a = 150; ass a = 0;}" ++
+               "if (b == 100) {set a = 15; set b = 150; val mut a = 150; set a = 0;}" ++
                "return ((a == 15) && (b == 150))"
             ) (VBool True)
 
       interpTest  ("val mut a = 10;" ++
                "val mut b = 100;" ++
-               "if (!(b == 100)) {ass a = 180;}" ++
-               "else {ass a = 15; ass b = 150; val mut a = 150; ass a = 0;}" ++
+               "if (!(b == 100)) {set a = 180;}" ++
+               "else {set a = 15; set b = 150; val mut a = 150; set a = 0;}" ++
                "return ((a == 15) && (b == 150))"
             ) (VBool True)
 
       interpTest  ("val mut a = 10;" ++
                "val b = 29;" ++
                "val mut i = 0;" ++ 
-               "while (i < 10) {ass a = a + 1; ass i = i + 1; val b = 31;}" ++
+               "while (i < 10) {set a = a + 1; set i = i + 1; val b = 31;}" ++
                "return ((a == 20) && (b == 29))"
             ) (VBool True)
 
@@ -95,7 +95,7 @@ test = hspec $ do
 
       interpTest  ("val mut a = vec![Red];" ++
                "val mut i = 0;" ++ 
-               "while (i < 10) {val b = &mut a; (*b)[0] = Yellow; ass i = i + 1;}" ++
+               "while (i < 10) {val b = &mut a; (*b)[0] = Yellow; set i = i + 1;}" ++
                "val c = &mut a;" ++
                "return (&((*c)[0]) == &(Yellow))"
             ) (VBool True)
@@ -372,12 +372,6 @@ test = hspec $ do
                "(list[0][0]).insert(0, 4);" ++ 
                "return ((list[0][0][0] == 4) && (list[0][0][1] == 1) && (list[0][0][2] == 2) && (list[0][0][3] == 3))"
             ) (VBool True)
-         
-      -- interpTest  ("val mut list = vec![vec![vec![1,2,3]]];" ++ 
-      --          "val a = (list.remove(0).remove(0))[0];" ++ 
-      --          "val b = a;" ++ 
-      --          "return b"
-      --       ) (VInt 1)
 
       interpErrorTest  ("val mut list = vec![vec![vec![1,2,3]]];" ++ 
                "val a = list[0][0];" ++ 
@@ -422,15 +416,15 @@ test = hspec $ do
    describe "Interpreter: Light tests (for moving)" $ do
       interpTest  ("val mut lamp1 = Green;" ++ 
                "val mut lamp2 = Yellow;" ++
-               "ass lamp2 = lamp1;" ++
-               "ass lamp1 = Red;" ++
+               "set lamp2 = lamp1;" ++
+               "set lamp1 = Red;" ++
                "fun test(l:Light) -> Light = {return Green}" ++
                "return lamp2"
             ) (VLight Green)
 
       interpTest  ("val mut lamp1 = Green;" ++ 
                "val mut lamp2 = lamp1;" ++
-               "ass lamp1 = Red;" ++
+               "set lamp1 = Red;" ++
                "fun test(l:Light) -> Light = {return Green}" ++
                "val u1 = test(lamp1);" ++ 
                "return lamp2"
@@ -455,7 +449,7 @@ test = hspec $ do
       interpTest  ("val lamp1 = Green;" ++ 
                "val mut lamp2 = lamp1;" ++
                "val lamp1 = Yellow;" ++ 
-               "ass lamp2 = lamp1;" ++
+               "set lamp2 = lamp1;" ++
                "return lamp2"
             ) (VLight Yellow)
 
@@ -467,8 +461,8 @@ test = hspec $ do
 
       interpTest  ("val mut lamp1 = Green;" ++ 
                "val mut lamp2 = Yellow;" ++
-               "ass lamp2 = lamp1;" ++
-               "ass lamp1 = Red;" ++
+               "set lamp2 = lamp1;" ++
+               "set lamp1 = Red;" ++
                "fun test(l:Light) -> Light = {return Green}" ++
                "val u1 = test(lamp1);" ++ 
                "return lamp2"
@@ -476,7 +470,7 @@ test = hspec $ do
 
       interpTest  ("val mut lamp1 = Green;" ++ 
                "val mut lamp2 = lamp1;" ++
-               "ass lamp1 = Red;" ++
+               "set lamp1 = Red;" ++
                "fun test(l:Light) -> Light = {return Green}" ++
                "val u1 = test(lamp1);" ++ 
                "return lamp2"
@@ -493,13 +487,13 @@ test = hspec $ do
       interpTest  ("val lamp1 = Green;" ++ 
                "val mut lamp2 = lamp1;" ++
                "val lamp1 = Yellow;" ++ 
-               "ass lamp2 = lamp1;" ++
+               "set lamp2 = lamp1;" ++
                "return lamp2"
             ) (VLight Yellow)
 
       interpTest  ("val lamp1 = Red;" ++ 
                "val mut lamp2 = lamp1;" ++
-               "ass lamp2 = Green;" ++ 
+               "set lamp2 = Green;" ++ 
                "val lamp3 = lamp2;" ++ 
                "return lamp3"
             ) (VLight Green)

@@ -1,10 +1,5 @@
-val mut z = vec![Green];
-val mut a = vec![Green];
-val mut b = &mut z;
-if (1 == 1) {
-    
-}
-ass b = &mut a;
-val c = &mut a;
+val x = vec![1,2,3];
+val b = &x;
+val c = &x;
 
 return 0

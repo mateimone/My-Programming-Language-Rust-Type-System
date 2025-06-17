@@ -83,6 +83,7 @@ runTC = runApp
 
 -- Write a message to the async log channel stored in the environment
 -- A message is written only when a new element is placed in the heap or in the reference store
+-- Messages are written to "runtime.log"
 logEval :: String -> Eval ()
 logEval s = do
   ch <- use logChanL
