@@ -352,6 +352,11 @@ infer (SAssDeref e v) = do
           EVar v -> E.peekVarType v
           _ -> E.infer e
   newValT <- E.infer v
+
+  case newValT of
+    (TMutRef _) -> throwError "cannot assign a reference through a mutable reference parameter, as it might outlive the current function body"
+    _ -> return ()
+
   case eT of
     (TRef _) -> throwError "Cannot mutate value under immutable reference"
     (TMutRef rT) -> when (rT /= newValT) $ throwError $ "Value under reference has type " ++ show rT ++ ", but expression " ++ show v ++ "has type " ++ show newValT
