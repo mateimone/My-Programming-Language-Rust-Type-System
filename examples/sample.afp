@@ -1,5 +1,13 @@
-val x = vec![1,2,3];
-val b = &x;
-val c = &x;
+val mut a = &mut(vec![vec![&(Red)]]);
 
-return 0
+fun test(v: &mut &mut List<List<&Light>>) -> &Light = {
+    (*(*v))[0] = vec![&(Yellow)];
+    return &(Green)
+}
+
+val mut b = &(Red);
+{
+    set b = test(&mut a);
+}
+
+return (b == &(Red))

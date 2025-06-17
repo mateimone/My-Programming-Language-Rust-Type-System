@@ -121,15 +121,16 @@ infer (SFun f params retTy stmts lastE) = do
   let argMuts = map (\(_,(_,m)) -> m) bindInfo
   let paramScope = M.fromList bindInfo
   outerEnv <- get
-  put outerEnv { scopes = [paramScope] }
+  -- put outerEnv { scopes = [paramScope] }
+  scopesL .= [paramScope]
 
   tBody <- do
               inferAndPass stmts
               E.infer lastE
 
-  checkMoveNotAllowed tBody lastE
-
   put outerEnv
+
+  checkMoveNotAllowed tBody lastE
 
   when (tBody /= retTy) $
       throwError $ "return type mismatch in " ++ show f ++

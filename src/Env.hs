@@ -13,7 +13,7 @@ module Env
   , insertInStore, getBorrowedValue, maxUnwrapBorrowedValue, modifyBorrowedValue
   , maxUnwrapType
   , readPrim
-  , logEval
+  , logEval, releaseBorrows
   , freshAddr, insertInHeap, readObject, replaceObject, numberOfRefs
   , heapL, scopesL, funsL, nextAL, refStoreL
   , randomString
