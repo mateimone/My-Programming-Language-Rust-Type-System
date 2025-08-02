@@ -4,25 +4,36 @@ import Evaluator
 
 import Env
 
-import Value ( TClosure )
+import Value ( TClosure, isCopy )
 
 import Lang.Abs ( Program( Program )
                 , Stmt
-                , Type )
+                , Type
+                , Exp(..) )
 
 import qualified TypeCheck.Stmt as S
 import qualified TypeCheck.Expr as E
 import qualified Lang.ErrM as S
+import Control.Monad.State (gets)
 
 -- PROGRAM TYPE CHECKER --------------------------------------------------------------
 
-infer :: Evaluator Type TClosure
-infer (Program stmts exp) env = do
-    nenv <- prepare stmts env
-    E.infer exp nenv
+checkMoveNotAllowed :: Type -> Exp -> TC ()
+checkMoveNotAllowed t e@(EIdx vec i) 
+  | isCopy t = return ()
+  | otherwise= throwError ("Cannot move element from array in expression " ++ show e)
+checkMoveNotAllowed _ _ = return ()
+
+infer :: Program -> TC Type
+infer (Program stmts exp) = do
+    prepare stmts
+    eTy <- E.infer exp
+    checkMoveNotAllowed eTy exp
+    s <- gets scopes
+    return eTy
   where
-    prepare :: [Stmt] -> (Env Type, Env TClosure) -> Result (Env Type, Env TClosure)
-    prepare []           env = return env
-    prepare (stmt:stmts) env = do
-        nenv <- S.infer stmt env
-        prepare stmts nenv
+    prepare :: [Stmt] -> TC ()
+    prepare []           = return ()
+    prepare (stmt:stmts) = do
+        S.infer stmt 
+        prepare stmts 

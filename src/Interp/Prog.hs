@@ -4,23 +4,28 @@ import Evaluator
 
 import Env
 import Value ( Value
-             , Closure )
+             , Closure, isCopy )
 
 import Lang.Abs ( Program( Program )
-                , Stmt )
+                , Stmt(..), Type, Exp(..) )
 
 import qualified Interp.Stmt as S
 import qualified Interp.Expr as E
+import Control.Monad.State (gets)
 
 -- PROGRAM INTERPRETER ---------------------------------------------------------------
 
-interp :: Evaluator Value Closure
-interp (Program stmts exp) env = do
-    nenv <- prepare stmts env
-    E.interp exp nenv
+interp :: Program -> Eval Value
+interp (Program stmts exp) = do
+    prepare stmts
+    e <- E.interp exp
+    s <- gets scopes
+    rs <- gets refStore
+    return e
   where
-    prepare :: [Stmt] -> (Env Value, Env Closure) -> Result (Env Value, Env Closure)
-    prepare []           env = return env
-    prepare (stmt:stmts) env = do
-        nenv <- S.interp stmt env
-        prepare stmts nenv
+    prepare :: [Stmt] -> Eval ()
+    prepare []           = return ()
+    prepare (stmt:stmts) = do
+        nenv <- S.interp stmt
+        prepare stmts 
+

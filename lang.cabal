@@ -38,9 +38,16 @@ library lang
                     , TypeCheck.Expr
                     , TypeCheck.Stmt
                     , TypeCheck.Prog
+                    , FiniteMap
 
-    build-depends:    grammar
+    build-depends:    mtl ^>=2.3.1
+                    , transformers ^>= 0.6.1.0
+                    , grammar
                     , containers
+                    , extra >= 1.7
+                    , random >= 1.2
+                    , async ^>= 2.2.5
+                    , lens ^>= 5.3.4
 
 -- the main executable which lets you run the interpreter
 executable main

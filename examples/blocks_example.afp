@@ -1,0 +1,17 @@
+val mut a = 10;
+val mut b = 20;
+
+if(!(1 == 1)) {
+    set a = 5;
+}
+else {
+    val mut i = 0;
+    set a = a + 5;
+    val mut a = 30;
+    while(i < 10) {
+        set b = b + 1;
+        set i = i + 1;
+    }
+}
+
+return ((a == 15) && (b == 30))

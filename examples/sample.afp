@@ -1,6 +1,13 @@
-val x = 3;
-val y = 5;
-fun orFalse (a : bool) = a || False;
-val z = x + y < 10;
+val mut a = &mut(vec![vec![&(Red)]]);
 
-orFalse z
+fun test(v: &mut &mut List<List<&Light>>) -> &Light = {
+    (*(*v))[0] = vec![&(Yellow)];
+    return &(Green)
+}
+
+val mut b = &(Red);
+{
+    set b = test(&mut a);
+}
+
+return (b == &(Red))

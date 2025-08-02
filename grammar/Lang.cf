@@ -3,25 +3,61 @@
 
 entrypoints Program;
 
-Program. Program ::= [Stmt] Exp ;
+Program. Program ::= [Stmt] "return " Exp ;
 
 --This is the syntax from BNFC to define a list of statements
 [].    [Stmt] ::= ;
-(:).   [Stmt] ::= Stmt ";" [Stmt] ;
+(:).   [Stmt] ::= Stmt [Stmt] ;
+
+[].    [Exp]  ::= ;
+(:).   [Exp]  ::= Exp [Exp] ;
+
+ArgImm.   Arg  ::= Ident ":" Type ;
+ArgMut.   Arg  ::= "mut" Ident ":" Type ;
+separator Arg "," ;
+separator Exp7 "," ;
+IndexList. IndexList ::= "[" Exp "]" ;
+Red. Light ::= "Red" ;
+Yellow. Light ::= "Yellow" ;
+Green. Light ::= "Green" ;
+[]. [IndexList] ::= ;
+(:). [IndexList] ::= IndexList [IndexList] ;
 
 -- TYPES --------------------------------------------------------------
 
-TInt.  Type1 ::= "int";
-TBool. Type1 ::= "bool";
+TInt.     Type1 ::= "int";
+TBool.    Type1 ::= "bool";
+TUnit.    Type1 ::= "unit";
+TLight.   Type1 ::= "Light";
+TList.    Type1 ::= "List" "<" Type ">";
+TRef.     Type1 ::= "&" Type;
+TMutRef.  Type1 ::= "&mut" Type;
+TUnknown. Type1 ::= "?" ;
 
 _. Type2 ::= "(" Type ")";
 _. Type1 ::= Type2;
 _. Type  ::= Type1;
 
 -- STATEMENTS ---------------------------------------------------------
+SAss.     Stmt ::= "set" Ident "=" Exp ";" ;
+SLet.     Stmt ::= "val" Ident "=" Exp ";" ;
+SLetAnn.  Stmt ::= "val" Ident ":" Type "=" Exp ";" ;
+SLetM.    Stmt ::= "val" "mut" Ident "=" Exp ";" ; 
+SLetMAnn. Stmt ::= "val" "mut" Ident ":" Type "=" Exp ";" ;
+SFun.     Stmt ::= "fun" Ident "(" [Arg] ") -> " Type " = {" [Stmt] "return " Exp "}" ;
+SIf.      Stmt ::= "if" "(" Exp ")" "{" [Stmt] "}" ;
+SIfElse.  Stmt ::= "if" "(" Exp ")" "{" [Stmt] "}" "else" "{" [Stmt] "}" ;
+SWhile.   Stmt ::= "while" "(" Exp ")" "{" [Stmt] "}" ;
 
-SLet. Stmt ::= "val" Ident "=" Exp ;
-SFun. Stmt ::= "fun" Ident "(" Ident ":" Type ") =" Exp ;
+
+SPush.   Stmt ::= Exp8 "." "push"   "(" Exp7 ")"      ";" ;
+SInsert. Stmt ::= Exp8 "." "insert" "(" Exp7 "," Exp7 ")" ";" ;
+SSetIdx. Stmt ::= Exp8 [IndexList] "=" Exp7 ";" ;
+-- SReturn. Stmt ::= "return " Exp8 ";" ;
+SExp. Stmt ::= Exp ";" ;
+SAssDeref. Stmt ::= "*" Exp8 "=" Exp8 ";" ;
+SArtBlock. Stmt ::= "{" [Stmt] "}" ;
+
 
 -- EXPRESSIONS --------------------------------------------------------
 
@@ -49,14 +85,31 @@ ELeq. Exp4 ::= Exp4 "<=" Exp5;
 EGeq. Exp4 ::= Exp4 ">=" Exp5;
 
 -- Control flow
-EIf.  Exp8 ::= "if" Exp "then" Exp "else" Exp;
+-- EIfElse.  Exp8 ::= "if" "(" Exp ")" "{" Exp "}" "else" "{" Exp "}" ;
 
 -- Let bindings
 ELet. Exp8 ::= "let" Ident "=" Exp "in" Exp;
 EVar. Exp8 ::= Ident;
 
 -- Functions
-EApp. Exp8 ::= Ident Exp7;
+EApp. Exp8 ::= Ident "(" [Exp7] ")";
+
+EVoid. Exp8 ::= "void" ;
+
+-- Light
+ELight. Exp7 ::= Light ;
+
+-- Lists
+EVec. Exp7 ::= "vec!" "[" [Exp7] "]" ;
+EIdx. Exp7 ::= Exp7 "[" Exp7 "]" ;
+
+-- List operations (of type unit)
+ERemove. Exp8 ::= Exp8 "." "remove" "(" Exp7 ")" ;
+
+-- References (borrows)
+ERef.    Exp8 ::= "&" Exp8 ;
+EMutRef. Exp8 ::= "&mut" Exp8 ;
+EDeref.  Exp8 ::= "*" Exp8;
 
 -- This part sets up the order of operation
 _. Exp8 ::= "(" Exp ")" ;

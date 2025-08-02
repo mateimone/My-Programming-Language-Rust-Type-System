@@ -1,0 +1,17 @@
+val mut a = vec![Red];
+
+{
+    if (1 == 1) {
+        {
+            val b = &mut a;
+        }
+        val c = &mut a;
+    }
+    val x = &a;
+    val y = &a;
+    val z = &a;
+}
+
+val d = &mut a;
+
+return 0

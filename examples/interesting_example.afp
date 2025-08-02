@@ -1,0 +1,19 @@
+val mut a = &mut(vec![vec![Red]]);
+
+fun test(v: &mut &mut List<List<Light>>) -> unit = {
+    (*(*v))[0] = vec![Yellow];
+    return void
+}
+
+{
+    test(&mut a);
+}
+
+val b = &mut a;
+((*(*b))[0]).insert(0, Red);
+val c = b;
+((*(*c))[0]).push(Green);
+
+return (&((*(*c))[0][0]) == &(Red)) && 
+       ( &((*(*c))[0][1]) == &(Yellow)) &&
+       (&((*(*c))[0][2]) == &(Green))
